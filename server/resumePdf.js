@@ -21,23 +21,40 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   function header() {
     doc.font("Times-Bold").fontSize(S.name).fillColor(BLACK).text(r.name, L, doc.y, { width: W, align: "center" });
 
-    // Contact line centered, with email (mailto) and LinkedIn/URLs (https) as clickable links
+    // Contact line — manually centered so links render with friendly labels and no overlap
     doc.font("Times-Roman").fontSize(S.contact);
-    const parts = (r.contact || "").split("|").map(s => s.trim()).filter(Boolean);
-    const y = doc.y + 1;
-    parts.forEach((part, i) => {
-      const isLast = i === parts.length - 1;
-      const cls = /@/.test(part) && !/linkedin|https?:/i.test(part) ? "email"
-        : /linkedin|github|https?:|\.com\//i.test(part) ? "link" : "plain";
-      const url = cls === "email" ? "mailto:" + part : cls === "link" ? (part.startsWith("http") ? part : "https://" + part) : null;
-      const opt = { continued: true, underline: cls !== "plain", link: url };
-      doc.fillColor(cls === "plain" ? BLACK : LINK);
-      if (i === 0) doc.text(part, L, y, { width: W, align: "center", ...opt });
-      else doc.text(part, opt);
-      if (!isLast) doc.fillColor(BLACK).text("  |  ", { continued: true, underline: false, link: null });
+    const segs = (r.contact || "").split("|").map(s => s.trim()).filter(Boolean).map(p => {
+      if (/@/.test(p) && !/linkedin|github|https?:/i.test(p)) return { label: p, link: "mailto:" + p };
+      if (/linkedin/i.test(p)) return { label: "LinkedIn", link: p.startsWith("http") ? p : "https://" + p };
+      if (/github/i.test(p)) return { label: "GitHub", link: p.startsWith("http") ? p : "https://" + p };
+      if (/https?:|\.com\//i.test(p)) return { label: p.replace(/^https?:\/\//, ""), link: p.startsWith("http") ? p : "https://" + p };
+      return { label: p, link: null };
     });
-    doc.text("", { continued: false }); // flush + center the line
-    doc.fillColor(BLACK);
+
+    const sep = "   |   ";
+    const sepW = doc.widthOfString(sep);
+    const total = segs.reduce((a, s, i) => a + doc.widthOfString(s.label) + (i < segs.length - 1 ? sepW : 0), 0);
+    const y = doc.y + 2;
+    const h = doc.currentLineHeight();
+    let x = L + Math.max(0, (W - total) / 2);
+
+    segs.forEach((s, i) => {
+      const w = doc.widthOfString(s.label);
+      if (s.link) {
+        doc.fillColor(LINK).text(s.label, x, y, { lineBreak: false });
+        doc.moveTo(x, y + h - 1.5).lineTo(x + w, y + h - 1.5).lineWidth(0.5).strokeColor(LINK).stroke();
+        doc.link(x, y, w, h, s.link);
+      } else {
+        doc.fillColor(BLACK).text(s.label, x, y, { lineBreak: false });
+      }
+      x += w;
+      if (i < segs.length - 1) {
+        doc.fillColor(BLACK).text(sep, x, y, { lineBreak: false });
+        x += sepW;
+      }
+    });
+    doc.fillColor(BLACK).strokeColor(BLACK);
+    doc.y = y + h;
     moveY(4);
   }
 
