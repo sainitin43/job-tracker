@@ -54,7 +54,7 @@ export function allUsers() {
 const DEFAULT_PREFS = {
   searchTerm: "Software Engineer",
   location: "United States",
-  sites: ["linkedin", "indeed", "google"],
+  sites: ["linkedin", "indeed", "glassdoor"],
   maxResults: 10,
   isRemote: false,
   techs: []
