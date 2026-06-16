@@ -280,6 +280,17 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
 
   function exportData() { download(`${user.firstName}-jobs.json`, JSON.stringify(jobs, null, 2), "application/json"); }
   function downloadResume(job) { if (!job?.resume) return; download(`${job.company}-${job.title}-resume.txt`, job.resume); }
+  async function downloadResumePdf(job) {
+    try {
+      const res = await fetch(`${API_BASE}/jobs/${job.id}/resume.pdf`, { headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Couldn't generate the PDF.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${job.company}-${job.title}-resume.pdf`.replace(/[^\w.\- ]+/g, "_"); a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert(e.message); }
+  }
 
   function attachResume(file) {
     if (!file) return;
@@ -379,12 +390,14 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                       <span>📍 {job.location || "—"}</span>
                       <span>💼 {job.type || "—"}</span>
                       <span>💰 {job.pay || "—"}</span>
+                      {job.datePosted && <span>🗓️ Posted {job.datePosted}</span>}
                       {job.source && <span>🌐 {job.source}</span>}
                       <span>{job.resume ? "📝 Resume ready" : "📝 No resume"}</span>
                     </div>
 
                     <div className="jobCardActions">
                       <button className="btn primary" onClick={() => openPosting(job)} disabled={!job.url}>🔗 Open & Apply</button>
+                      <button className="btn" onClick={() => downloadResumePdf(job)}>⬇️ Resume PDF</button>
                       <button className="btn" onClick={() => toggleExpand(job.id, "resume")} disabled={!job.resume}>{showResume ? "Hide Resume" : "📝 Tailored Resume"}</button>
                       <button className="btn" onClick={() => toggleExpand(job.id, "jd")}>{showJD ? "Hide JD" : "📄 View JD"}</button>
                       <button className="btn" onClick={() => editJob(job)}>✏️ Edit</button>
@@ -402,6 +415,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                         <h4>Tailored ATS Resume</h4>
                         <textarea className="resumeBox" readOnly value={job.resume || ""} />
                         <div className="actions wrap">
+                          <button className="primary" onClick={() => downloadResumePdf(job)}>⬇️ Download PDF</button>
                           <button onClick={() => navigator.clipboard.writeText(job.resume || "")}>Copy</button>
                           <button onClick={() => downloadResume(job)}>Download TXT</button>
                         </div>

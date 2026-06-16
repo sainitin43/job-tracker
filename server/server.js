@@ -6,7 +6,9 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 import * as store from "./store.js";
 import * as discover from "./discover.js";
-import { scoreMatch, tailorResumeSmart } from "./tailor.js";
+import { scoreMatch, buildTailoredResume } from "./tailor.js";
+import { streamStructuredResumePdf } from "./resumePdf.js";
+import { BASE_RESUME } from "./resumeTemplate.js";
 
 dotenv.config();
 
@@ -57,12 +59,14 @@ function rowToJob(r) {
     dateApplied: r.date_applied || "",
     description: r.description || "",
     resume: r.resume || "",
+    resumeData: r.resume_data || null,
     resumeFile: r.resume_file || null,
     resumeFileName: r.resume_name || "",
     resumeFileType: r.resume_type || "",
     favourite: !!r.favourite,
     score: typeof r.score === "number" ? r.score : null,
-    source: r.source || ""
+    source: r.source || "",
+    datePosted: r.date_posted || ""
   };
 }
 
@@ -81,12 +85,14 @@ function makeJobRow(b, userId) {
     date_applied: b.dateApplied || "",
     description: b.description || "",
     resume: b.resume || "",
+    resume_data: b.resumeData || null,
     resume_file: b.resumeFile || null,
     resume_name: b.resumeFileName || "",
     resume_type: b.resumeFileType || "",
     favourite: !!b.favourite,
     score: typeof b.score === "number" ? b.score : null,
     source: b.source || "",
+    date_posted: b.datePosted || "",
     created_at: now()
   };
 }
@@ -204,6 +210,15 @@ app.delete("/api/jobs/:id", auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Download the tailored resume as a formatted PDF (always in the base layout)
+app.get("/api/jobs/:id/resume.pdf", auth, (req, res) => {
+  const job = store.getJob(req.params.id, req.user.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
+  const resume = job.resume_data || BASE_RESUME; // structured tailored, else base template
+  streamStructuredResumePdf(res, resume, `${safe(job.company)}-${safe(job.title)}-resume.pdf`);
+});
+
 /* ---------------------------- profile ----------------------------- */
 app.get("/api/profile", auth, (req, res) => {
   const u = req.user;
@@ -253,11 +268,11 @@ async function findAndCreateJobs(user) {
       if (added >= MAX_NEW) break;
       const u = (job.url || "").toLowerCase();
       if (u && existingUrls.has(u)) continue;
-      const resume = await tailorResumeSmart(job, profile, match);
+      const { struct, text } = await buildTailoredResume(job, profile, match);
       store.addJob(makeJobRow({
         company: job.company, title: job.title, url: job.url, location: job.location,
         type: job.type, pay: job.pay, status: "Not Applied", description: job.description,
-        resume, favourite: false, score: match.score, source: job.source
+        resume: text, resumeData: struct, favourite: false, score: match.score, source: job.source, datePosted: job.datePosted
       }, user.id));
       if (u) existingUrls.add(u);
       added++;

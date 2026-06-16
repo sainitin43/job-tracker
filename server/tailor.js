@@ -1,3 +1,5 @@
+import { BASE_RESUME, resumeToText } from "./resumeTemplate.js";
+
 // Match scoring + template-based ATS resume tailoring (no external LLM).
 
 const DEFAULT_SKILLS = [
@@ -62,6 +64,56 @@ export async function tailorResumeSmart(job, profile, match) {
   } catch (e) {
     console.error("[tailor] LLM failed, using template:", e.message);
     return tailorResume(job, profile, match);
+  }
+}
+
+// Build a full structured resume = base template with ONLY the experience
+// bullets tailored to the job. Other sections stay verbatim. Returns { struct, text }.
+export async function buildTailoredResume(job, profile, match) {
+  const struct = { ...BASE_RESUME, experience: await tailorExperience(job, match) };
+  return { struct, text: resumeToText(struct) };
+}
+
+async function tailorExperience(job, match) {
+  if (!process.env.ANTHROPIC_API_KEY) return BASE_RESUME.experience;
+  try {
+    const prompt =
+`Tailor ONLY the bullet points of each experience entry to the target job below, to maximize ATS keyword match. Rules:
+- Keep the SAME company, location, title, and dates for each entry.
+- Keep the SAME number of bullets per entry.
+- Stay 100% truthful: only re-emphasize, reorder, and re-word the candidate's existing facts/technologies; do NOT invent employers, tools, or experience not already present.
+- Mirror the job's terminology where it genuinely overlaps with the candidate's work.
+Return ONLY a JSON array with this exact shape: [{"company":"","location":"","title":"","dates":"","bullets":["",...]}]
+
+TARGET JOB TITLE: ${job.title} @ ${job.company}
+TARGET JOB DESCRIPTION:
+${(job.description || "").slice(0, 4500)}
+
+CURRENT EXPERIENCE (JSON):
+${JSON.stringify(BASE_RESUME.experience)}`;
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest", max_tokens: 3000, messages: [{ role: "user", content: prompt }] })
+    });
+    if (!res.ok) throw new Error("Anthropic " + res.status + ": " + (await res.text()).slice(0, 140));
+    const data = await res.json();
+    let text = (data.content || []).map(c => c.text || "").join("").trim();
+    const a = text.indexOf("["), b = text.lastIndexOf("]");
+    if (a !== -1 && b !== -1) text = text.slice(a, b + 1);
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed) || !parsed.length || !parsed.every(e => Array.isArray(e.bullets) && e.bullets.length)) {
+      throw new Error("bad LLM shape");
+    }
+    // keep base company/title/dates, take tailored bullets
+    return BASE_RESUME.experience.map((base, i) => ({
+      ...base,
+      bullets: (parsed[i] && parsed[i].bullets && parsed[i].bullets.length ? parsed[i].bullets : base.bullets).map(String)
+    }));
+  } catch (e) {
+    console.error("[tailor] experience LLM failed, using base bullets:", e.message);
+    return BASE_RESUME.experience;
   }
 }
 
