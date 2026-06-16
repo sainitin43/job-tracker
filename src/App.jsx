@@ -211,6 +211,12 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   const [expandedId, setExpandedId] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const [view, setView] = useState("jobs"); // "jobs" | "discover"
+  const [disc, setDisc] = useState(null);    // { enabled, prefs, jobs, lastRefreshedAt }
+  const [discLoading, setDiscLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [discExpanded, setDiscExpanded] = useState(null); // {id, tab:'jd'|'resume'}
+
   function toggleTech(t) {
     setTechFilter(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]));
   }
@@ -313,6 +319,44 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
     download(`${user.firstName}-job-tracker-backup.json`, JSON.stringify(jobs, null, 2), "application/json");
   }
 
+  // ---- Discover (live jobs via backend/Apify) ----
+  const loadDiscover = useCallback(async () => {
+    setDiscLoading(true);
+    try { setDisc(await call("/discover")); }
+    catch { /* handled */ }
+    finally { setDiscLoading(false); }
+  }, [call]);
+
+  async function refreshDiscover() {
+    setRefreshing(true);
+    try {
+      const body = disc?.prefs || {};
+      const { jobs: found, lastRefreshedAt } = await call("/discover/refresh", { method: "POST", body });
+      setDisc(d => ({ ...d, jobs: found, lastRefreshedAt }));
+    } catch (e) { alert(e.message); }
+    finally { setRefreshing(false); }
+  }
+
+  function setPref(key, value) {
+    setDisc(d => ({ ...d, prefs: { ...d.prefs, [key]: value } }));
+  }
+
+  async function saveDiscovered(job) {
+    try {
+      const body = {
+        company: job.company, title: job.title, url: job.url, location: job.location,
+        type: job.type, pay: job.pay, status: "Not Applied", description: job.description, resume: job.resume || ""
+      };
+      const { job: saved } = await call("/jobs", { method: "POST", body });
+      setJobs(prev => [saved, ...prev]);
+      alert(`Saved “${job.title}” to your jobs.`);
+    } catch (e) { alert(e.message); }
+  }
+
+  useEffect(() => {
+    if (view === "discover" && disc === null) loadDiscover();
+  }, [view, disc, loadDiscover]);
+
   function attachResume(file) {
     if (!file) return;
     const reader = new FileReader();
@@ -360,6 +404,16 @@ ${draft.description || "Paste the job description to customize keywords."}`;
         </div>
       </header>
 
+      <nav className="viewTabs">
+        <button className={"viewTab" + (view === "jobs" ? " active" : "")} onClick={() => setView("jobs")}>
+          📋 My Jobs <span className="tabCount">{jobs.length}</span>
+        </button>
+        <button className={"viewTab" + (view === "discover" ? " active" : "")} onClick={() => setView("discover")}>
+          🧭 Discover Jobs
+        </button>
+      </nav>
+
+      {view === "jobs" && (
       <section className="searchHero">
         <div className="searchBarWrap">
           <span className="searchIcon">🔍</span>
@@ -387,9 +441,24 @@ ${draft.description || "Paste the job description to customize keywords."}`;
           )}
         </div>
       </section>
+      )}
 
       <section className="layout">
         <div className="left">
+          {view === "discover" && (
+            <Discover
+              disc={disc}
+              loading={discLoading}
+              refreshing={refreshing}
+              onRefresh={refreshDiscover}
+              setPref={setPref}
+              onSave={saveDiscovered}
+              expanded={discExpanded}
+              setExpanded={setDiscExpanded}
+            />
+          )}
+
+          {view === "jobs" && (<>
           <div className="stats">
             <Card label="Total Jobs" value={stats.total} />
             <Card label="Applied" value={stats.applied} />
@@ -476,6 +545,7 @@ ${draft.description || "Paste the job description to customize keywords."}`;
               })}
             </div>
           </section>
+          </>)}
         </div>
       </section>
 
@@ -566,6 +636,118 @@ function Card({ label, value }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function scoreClass(s) {
+  if (s >= 75) return "score-high";
+  if (s >= 50) return "score-mid";
+  return "score-low";
+}
+
+function Discover({ disc, loading, refreshing, onRefresh, setPref, onSave, expanded, setExpanded }) {
+  if (loading || disc === null) {
+    return <section className="panel"><p className="emptyState">Loading Discover…</p></section>;
+  }
+  const prefs = disc.prefs || {};
+  const jobs = disc.jobs || [];
+  const exp = expanded || {};
+  const toggle = (id, tab) => setExpanded(prev => (prev && prev.id === id && prev.tab === tab ? null : { id, tab }));
+
+  return (
+    <section className="panel">
+      <div className="panelHead">
+        <div>
+          <h2>Discover Jobs</h2>
+          <p>Live matches pulled from LinkedIn, Indeed, Google Jobs & more — scored against your profile, each with a tailored ATS resume. Auto-refreshes every 2 hours.</p>
+        </div>
+        <button className="primary" onClick={onRefresh} disabled={refreshing || !disc.enabled}>
+          {refreshing ? "Searching…" : "🔄 Refresh now"}
+        </button>
+      </div>
+
+      {!disc.enabled && (
+        <div className="setupNote">
+          <strong>Job fetching isn't enabled yet.</strong>
+          <p>Add an Apify API token to the backend to turn this on:</p>
+          <ol>
+            <li>Get a token at <span className="mono">console.apify.com/account/integrations</span></li>
+            <li>In <span className="mono">server/.env</span> set <span className="mono">APIFY_TOKEN=your_token</span></li>
+            <li>Restart the backend, then click <em>Refresh now</em>.</li>
+          </ol>
+        </div>
+      )}
+
+      <div className="discPrefs">
+        <label>Role
+          <input value={prefs.searchTerm || ""} onChange={e => setPref("searchTerm", e.target.value)} placeholder="e.g. Android Engineer" />
+        </label>
+        <label>Location
+          <input value={prefs.location || ""} onChange={e => setPref("location", e.target.value)} placeholder="e.g. Remote, San Jose, CA" />
+        </label>
+        <label>Per board
+          <input type="number" min="1" max="50" value={prefs.maxResults || 10} onChange={e => setPref("maxResults", Number(e.target.value))} />
+        </label>
+        <label className="checkRow">
+          <input type="checkbox" checked={!!prefs.isRemote} onChange={e => setPref("isRemote", e.target.checked)} /> Remote only
+        </label>
+      </div>
+
+      <p className="discMeta">
+        {disc.lastRefreshedAt ? `Last updated ${new Date(disc.lastRefreshedAt).toLocaleString()}` : "Not fetched yet."}
+        {jobs.length ? ` · ${jobs.length} matches` : ""}
+      </p>
+
+      <div className="jobList">
+        {jobs.length === 0 && (
+          <p className="emptyState">{disc.enabled ? "No matches yet — set your role and click “Refresh now”." : "Enable job fetching to see live matches."}</p>
+        )}
+        {jobs.map(job => {
+          const showJD = exp.id === job.id && exp.tab === "jd";
+          const showResume = exp.id === job.id && exp.tab === "resume";
+          return (
+            <div key={job.id} className="jobCard discoverCard">
+              <div className="jobCardTitleRow">
+                <h3>{job.title}</h3>
+                {typeof job.score === "number" && <span className={"scorePill " + scoreClass(job.score)}>{job.score}% match</span>}
+                <span className="sourceBadge">{job.source}</span>
+              </div>
+              <p className="jobRole">{job.company}</p>
+              <div className="jobMeta">
+                <span>📍 {job.location || "—"}</span>
+                <span>💼 {job.type || "—"}</span>
+                <span>💰 {job.pay || "—"}</span>
+                {job.datePosted && <span>🗓️ {job.datePosted}</span>}
+              </div>
+
+              <div className="jobCardActions">
+                <a className="btn ghost" href={job.url} target="_blank" rel="noreferrer">🔗 Open Posting</a>
+                <button className="btn" onClick={() => toggle(job.id, "jd")}>{showJD ? "Hide JD" : "📄 View JD"}</button>
+                <button className="btn" onClick={() => toggle(job.id, "resume")}>{showResume ? "Hide Resume" : "📝 Tailored Resume"}</button>
+                <button className="btn primary" onClick={() => onSave(job)}>➕ Save to My Jobs</button>
+              </div>
+
+              {showJD && (
+                <div className="jobDesc open"><div className="jobDescInner">
+                  <h4>Job Description</h4>
+                  <p>{job.description || "No description provided by the source."}</p>
+                </div></div>
+              )}
+              {showResume && (
+                <div className="jobDesc open"><div className="jobDescInner">
+                  <h4>Tailored ATS Resume</h4>
+                  <textarea className="resumeBox" readOnly value={job.resume || ""} />
+                  <div className="actions wrap">
+                    <button onClick={() => navigator.clipboard.writeText(job.resume || "")}>Copy</button>
+                    <button onClick={() => download(`${job.company}-${job.title}-resume.txt`, job.resume || "")}>Download TXT</button>
+                  </div>
+                </div></div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

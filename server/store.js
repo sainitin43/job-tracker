@@ -7,17 +7,17 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_FILE = path.join(__dirname, "data.json");
 
-let data = { users: [], jobs: [] };
+let data = { users: [], jobs: [], discover: {} };
 
 function load() {
   try {
     if (fs.existsSync(DB_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
-      data = { users: parsed.users || [], jobs: parsed.jobs || [] };
+      data = { users: parsed.users || [], jobs: parsed.jobs || [], discover: parsed.discover || {} };
     }
   } catch (e) {
     console.error("Failed to read data.json, starting empty:", e.message);
-    data = { users: [], jobs: [] };
+    data = { users: [], jobs: [], discover: {} };
   }
 }
 function save() {
@@ -38,6 +38,50 @@ export function addUser(user) {
   data.users.push(user);
   save();
   return user;
+}
+export function updateUser(id, patch) {
+  const u = getUserById(id);
+  if (!u) return null;
+  Object.assign(u, patch);
+  save();
+  return u;
+}
+export function allUsers() {
+  return data.users.slice();
+}
+
+/* discover (per-user job search prefs + fetched matches) */
+const DEFAULT_PREFS = {
+  searchTerm: "Software Engineer",
+  location: "United States",
+  sites: ["linkedin", "indeed", "google"],
+  maxResults: 10,
+  isRemote: false,
+  techs: []
+};
+export function getDiscover(userId) {
+  if (!data.discover[userId]) {
+    data.discover[userId] = { prefs: { ...DEFAULT_PREFS }, jobs: [], lastRefreshedAt: null, refreshing: false };
+  }
+  return data.discover[userId];
+}
+export function setDiscoverPrefs(userId, prefs) {
+  const d = getDiscover(userId);
+  d.prefs = { ...d.prefs, ...prefs };
+  save();
+  return d.prefs;
+}
+export function setDiscoverJobs(userId, jobs) {
+  const d = getDiscover(userId);
+  d.jobs = jobs;
+  d.lastRefreshedAt = new Date().toISOString();
+  save();
+  return d;
+}
+export function setRefreshing(userId, val) {
+  const d = getDiscover(userId);
+  d.refreshing = !!val;
+  save();
 }
 
 /* jobs */

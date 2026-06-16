@@ -5,6 +5,8 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import * as store from "./store.js";
+import * as discover from "./discover.js";
+import { scoreMatch, tailorResume } from "./tailor.js";
 
 dotenv.config();
 
@@ -189,8 +191,102 @@ app.delete("/api/jobs/:id", auth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+/* ---------------------------- profile ----------------------------- */
+app.get("/api/profile", auth, (req, res) => {
+  const u = req.user;
+  res.json({ profile: { name: u.name || u.first_name, baseResume: u.base_resume || "", skills: u.skills || [] } });
+});
+app.put("/api/profile", auth, (req, res) => {
+  const b = req.body || {};
+  const patch = {};
+  if (b.name !== undefined) patch.name = b.name;
+  if (b.baseResume !== undefined) patch.base_resume = b.baseResume;
+  if (b.skills !== undefined) patch.skills = Array.isArray(b.skills) ? b.skills : [];
+  store.updateUser(req.user.id, patch);
+  res.json({ ok: true });
+});
+
+/* --------------------------- discover ----------------------------- */
+function profileFor(user, prefs) {
+  return {
+    name: user.name || user.first_name,
+    baseResume: user.base_resume || "",
+    skills: user.skills || [],
+    searchTerm: prefs.searchTerm
+  };
+}
+
+async function refreshDiscover(user) {
+  const d = store.getDiscover(user.id);
+  store.setRefreshing(user.id, true);
+  try {
+    const raw = await discover.fetchJobs(d.prefs);
+    const profile = profileFor(user, d.prefs);
+    const enriched = raw
+      .map(job => {
+        const match = scoreMatch(job, profile);
+        return { ...job, score: match.score, matched: match.matched, resume: tailorResume(job, profile, match) };
+      })
+      .sort((a, b) => b.score - a.score);
+    store.setDiscoverJobs(user.id, enriched);
+    return enriched;
+  } finally {
+    store.setRefreshing(user.id, false);
+  }
+}
+
+app.get("/api/discover", auth, (req, res) => {
+  const d = store.getDiscover(req.user.id);
+  res.json({
+    enabled: discover.apifyEnabled(),
+    prefs: d.prefs,
+    jobs: d.jobs,
+    lastRefreshedAt: d.lastRefreshedAt,
+    refreshing: d.refreshing
+  });
+});
+
+app.put("/api/discover/prefs", auth, (req, res) => {
+  const prefs = store.setDiscoverPrefs(req.user.id, req.body || {});
+  res.json({ prefs });
+});
+
+app.post("/api/discover/refresh", auth, async (req, res) => {
+  if (!discover.apifyEnabled()) {
+    return res.status(400).json({ error: "Job fetching isn't configured. Add APIFY_TOKEN to the server .env." });
+  }
+  if (req.body && Object.keys(req.body).length) store.setDiscoverPrefs(req.user.id, req.body);
+  try {
+    const jobs = await refreshDiscover(req.user);
+    res.json({ jobs, lastRefreshedAt: store.getDiscover(req.user.id).lastRefreshedAt });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.get("/api/health", (_req, res) => res.json({ ok: true, apify: discover.apifyEnabled() }));
 
 app.listen(PORT, () => {
   console.log(`Job Tracker API running on http://localhost:${PORT} (CORS origin: ${ORIGIN})`);
+  console.log(`Apify job fetching: ${discover.apifyEnabled() ? "enabled" : "disabled (set APIFY_TOKEN to enable)"}`);
 });
+
+/* ---------------- 2-hour auto-refresh (local cron) ---------------- */
+const TWO_HOURS = 2 * 60 * 60 * 1000;
+async function refreshAllUsers() {
+  if (!discover.apifyEnabled()) return;
+  for (const u of store.allUsers()) {
+    const d = store.getDiscover(u.id);
+    if (!d.lastRefreshedAt && !d.prefs) continue; // only users who've set up discover
+    try {
+      console.log(`[cron] refreshing discover for ${u.email}…`);
+      await refreshDiscover(u);
+    } catch (e) {
+      console.error(`[cron] refresh failed for ${u.email}:`, e.message);
+    }
+  }
+}
+if (discover.apifyEnabled()) {
+  setInterval(refreshAllUsers, TWO_HOURS);
+  console.log("[cron] auto-refresh scheduled every 2 hours");
+}

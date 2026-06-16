@@ -10,9 +10,23 @@ A local-first job application tracker built with **React + Vite**. Track roles y
 - **Full job descriptions** — expand any card to read the complete JD (nothing truncated).
 - **Add / Edit modal** — create or update a job, including status, dates, and the full JD.
 - **Resumes per job** — attach a resume file (PDF/DOC/TXT/MD), download it, plus a tailored resume-text field with TXT/MD export.
+- **Top search + tech-stack filter** — a prominent search bar and tech chips (Java, Kotlin, React…) to narrow your saved jobs.
+- **Inline editable status** — change a job's status (incl. *Not Applied*) right on its card; saves instantly.
+- **Discover Jobs (live)** — pulls fresh matches from LinkedIn / Indeed / Google Jobs & more via an **Apify** actor, scores each against your profile, generates a **tailored ATS resume** per job, and **auto-refreshes every 2 hours** (local cron). Requires `APIFY_TOKEN` in the backend.
 - **Search & filter** — by company, title, status, or description.
 - **Backup** — Export / Import all jobs as JSON.
 - Animated, responsive dark UI.
+
+## Discover Jobs setup
+
+Open the **Discover Jobs** tab. To enable live fetching, add an Apify token to `server/.env`:
+
+```
+APIFY_TOKEN=your_apify_token   # from console.apify.com/account/integrations
+APIFY_ACTOR=openclawai/job-board-scraper
+```
+
+Restart the backend, set your Role/Location in the Discover tab, and click **Refresh now**. With a token present, the backend also re-fetches every 2 hours automatically (keep the server running). Each result includes a match score and a tailored resume you can copy or **Save to My Jobs**.
 
 ## Tech stack
 
