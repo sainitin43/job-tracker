@@ -14,6 +14,10 @@ function googleClientId() {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+const STATUSES = ["Not Applied", "Applied", "Interviewing", "Rejected", "Offer"];
+const STATUS_FILTERS = ["All", ...STATUSES];
+const statusSlug = s => (s || "").toLowerCase().replace(/\s+/g, "-");
+
 const blankJob = {
   company: "", title: "", url: "", location: "", type: "Full-time", pay: "",
   status: "Applied", dateApplied: "", description: "",
@@ -267,6 +271,18 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
     } catch (e) { alert(e.message); }
   }
 
+  async function updateStatus(job, status) {
+    if (status === job.status) return;
+    const prev = job.status;
+    setJobs(p => p.map(j => (j.id === job.id ? { ...j, status } : j))); // optimistic
+    try {
+      await call(`/jobs/${job.id}`, { method: "PUT", body: { status } });
+    } catch (e) {
+      setJobs(p => p.map(j => (j.id === job.id ? { ...j, status: prev } : j))); // revert
+      alert(e.message);
+    }
+  }
+
   function toggleExpand(id) { setExpandedId(prev => (prev === id ? null : id)); }
   function downloadResume(job) {
     if (!job?.resumeFile) return;
@@ -345,7 +361,7 @@ ${draft.description || "Paste the job description to customize keywords."}`;
             <div className="filters">
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search company, title, status, or description..." />
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                {["All", "Applied", "Interviewing", "Rejected", "Offer"].map(s => <option key={s}>{s}</option>)}
+                {STATUS_FILTERS.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
 
@@ -367,7 +383,16 @@ ${draft.description || "Paste the job description to customize keywords."}`;
                       <div className="jobCardInfo">
                         <div className="jobCardTitleRow">
                           <h3>{job.company}</h3>
-                          <span className={"pill pill-" + job.status.toLowerCase()}>{job.status}</span>
+                          <span className={"statusPill pill-" + statusSlug(job.status)} onClick={e => e.stopPropagation()}>
+                            <select
+                              value={job.status}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => { e.stopPropagation(); updateStatus(job, e.target.value); }}
+                              aria-label="Change status"
+                            >
+                              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </span>
                         </div>
                         <p className="jobRole">{job.title}</p>
                         <div className="jobMeta">
@@ -426,10 +451,7 @@ ${draft.description || "Paste the job description to customize keywords."}`;
               </select>
               <input placeholder="Pay / package" value={draft.pay} onChange={e => setDraft({ ...draft, pay: e.target.value })} />
               <select value={draft.status} onChange={e => setDraft({ ...draft, status: e.target.value })}>
-                <option>Applied</option>
-                <option>Interviewing</option>
-                <option>Rejected</option>
-                <option>Offer</option>
+                {STATUSES.map(s => <option key={s}>{s}</option>)}
               </select>
               <input type="date" value={draft.dateApplied} onChange={e => setDraft({ ...draft, dateApplied: e.target.value })} />
               <textarea className="wide bigDescription" placeholder="Paste the complete job description here..." value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} />
