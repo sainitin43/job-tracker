@@ -79,11 +79,11 @@ async function tailorExperience(job, match) {
   try {
     const prompt =
 `Tailor ONLY the bullet points of each experience entry to the target job below, to maximize ATS keyword match. Rules:
-- Keep the SAME company, location, title, and dates for each entry.
+- Keep the SAME header (company/role) and dates for each entry.
 - Keep the SAME number of bullets per entry.
 - Stay 100% truthful: only re-emphasize, reorder, and re-word the candidate's existing facts/technologies; do NOT invent employers, tools, or experience not already present.
 - Mirror the job's terminology where it genuinely overlaps with the candidate's work.
-Return ONLY a JSON array with this exact shape: [{"company":"","location":"","title":"","dates":"","bullets":["",...]}]
+Return ONLY a JSON array with this exact shape: [{"header":"","dates":"","bullets":["",...]}]
 
 TARGET JOB TITLE: ${job.title} @ ${job.company}
 TARGET JOB DESCRIPTION:

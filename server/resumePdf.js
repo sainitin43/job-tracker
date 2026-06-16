@@ -98,9 +98,8 @@ export function streamStructuredResumePdf(res, r, downloadName) {
 
   section("Professional Experience");
   r.experience.forEach((e, idx) => {
-    if (idx > 0) moveY(0.5);
-    splitRow(e.company, e.location, "Times-Bold", S.comp);
-    splitRow(e.title, e.dates, "Times-Italic", S.title);
+    if (idx > 0) moveY(1);
+    splitRow(e.header, e.dates, "Times-Bold", S.comp);
     moveY(0.3);
     e.bullets.forEach(bullet);
   });
@@ -120,7 +119,8 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   bullet(r.certifications);
 
   section("Education");
-  splitRow(r.education.left, r.education.right, "Times-Bold", S.comp);
+  const edu = Array.isArray(r.education) ? r.education : [r.education];
+  edu.forEach(ed => splitRow(ed.left, ed.right, "Times-Bold", S.comp));
 
   doc.end();
 }
