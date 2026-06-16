@@ -18,17 +18,17 @@ export const BASE_RESUME = {
       ]
     },
     {
-      header: "Wynbit Inc | Software Engineer",
+      header: "Wynbit Inc | Java Developer",
       dates: "Aug 2023 - Jan 2025",
       bullets: [
-        "Owned Android Prescription Refill and Order Placement flows in Kotlin, modeling UI state to survive process death, configuration changes, background execution limits, and low-memory conditions without duplicating refill requests or corrupting order state.",
-        "Modeled durable prescription and order state separately from transient UI events, preventing duplicate submissions, inconsistent refill status, and payment mismatches during lifecycle recreation and task re-launch.",
-        "Implemented lifecycle-safe navigation and state restoration with ViewModel-scoped state, eliminating side effects from Fragment reattachment and interrupted background execution across refill and checkout steps.",
-        "Integrated REST backend APIs over Retrofit/OkHttp for prescription eligibility, pricing, insurance validation, and order confirmation, validating response schemas and error contracts to prevent client-side corruption under latency or partial failures.",
-        "Built secure authentication with OAuth 2.0 and JWT, persisting tokens in EncryptedSharedPreferences with refresh and expiration handling to keep user sessions secure and uninterrupted.",
-        "Engineered offline-tolerant refill flows with Room, rendering cached prescription data instantly and reconciling backend responses asynchronously without UI flicker or invalid order state.",
-        "Adopted Jetpack Compose with state-driven MVVM/MVI and Hilt dependency injection, isolating business logic behind use cases to improve testability and reduce coupling across feature modules.",
-        "Optimized RecyclerView and Compose rendering with the Android Profiler by stabilizing item IDs, minimizing layout invalidations, and cutting unnecessary recompositions for smoother scrolling and faster UI response."
+        "Built and maintained Java backend services with Spring Boot, designing RESTful APIs with request validation, pagination, idempotency, and centralized exception handling for reliable, versioned, well-documented service contracts.",
+        "Implemented authentication and authorization with Spring Security using OAuth 2.0 and JWT, securing endpoints and standardizing role-based access control across services.",
+        "Designed event-driven workflows with Apache Kafka, enabling real-time data streaming and decoupled, fault-tolerant processing across microservices.",
+        "Modeled relational schemas and optimized SQL queries through indexing and query tuning, reducing database latency by ~20% and improving throughput under peak load.",
+        "Introduced Redis caching for frequently accessed data, cutting read latency and offloading the primary database during high-traffic periods.",
+        "Containerized services with Docker and deployed on Kubernetes, configuring CI/CD pipelines with Maven and Jenkins to automate build, test, and delivery for faster, safer releases.",
+        "Wrote unit and integration tests with JUnit and Mockito, raising coverage and catching regressions early in the continuous-integration pipeline.",
+        "Instrumented services with structured logging, health checks, and metrics, improving observability and shortening incident diagnosis during on-call support."
       ]
     }
   ],

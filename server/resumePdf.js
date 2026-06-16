@@ -13,7 +13,7 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   const BLACK = "#000000";
 
   // sizes tuned to fill one full page with this resume's volume
-  const S = { name: 13.8, contact: 8.1, hdr: 8.8, comp: 8, title: 7.6, body: 7.4, lead: 8.4 };
+  const S = { name: 14.5, contact: 8.4, hdr: 9.2, comp: 8.4, title: 7.9, body: 7.7, lead: 8.8 };
 
   const moveY = dy => { doc.y += dy; };
 
