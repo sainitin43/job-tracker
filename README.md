@@ -10,23 +10,30 @@ A local-first job application tracker built with **React + Vite**. Track roles y
 - **Full job descriptions** — expand any card to read the complete JD (nothing truncated).
 - **Add / Edit modal** — create or update a job, including status, dates, and the full JD.
 - **Resumes per job** — attach a resume file (PDF/DOC/TXT/MD), download it, plus a tailored resume-text field with TXT/MD export.
-- **Top search + tech-stack filter** — a prominent search bar and tech chips (Java, Kotlin, React…) to narrow your saved jobs.
-- **Inline editable status** — change a job's status (incl. *Not Applied*) right on its card; saves instantly.
-- **Discover Jobs (live)** — pulls fresh matches from LinkedIn / Indeed / Google Jobs & more via an **Apify** actor, scores each against your profile, generates a **tailored ATS resume** per job, and **auto-refreshes every 2 hours** (local cron). Requires `APIFY_TOKEN` in the backend.
+- **Status-tab board** — top tabs **Not Applied · Applied · ⭐ Favourite**; change a job's status inline on its card and it moves tabs instantly.
+- **Find Jobs (auto)** — pulls fresh matches from LinkedIn / Indeed / Glassdoor via an **Apify** actor, keeps good fits, generates a **tailored ATS resume** for each (Claude LLM, with template fallback), and drops them into **Not Applied**. Also **auto-refreshes every 2 hours** (local cron). Requires `APIFY_TOKEN`.
+- **Apply-on-return prompt** — click **Open & Apply** on a job; when you switch back to the app it asks "Did you apply?" — **Yes** moves it to **Applied**.
+- **Top search + tech-stack filter** — search bar + tech chips (Java, Kotlin, React…) to narrow the current tab.
+- **Favourites** — ⭐ any job to find it in the Favourite tab.
 - **Search & filter** — by company, title, status, or description.
 - **Backup** — Export / Import all jobs as JSON.
 - Animated, responsive dark UI.
 
-## Discover Jobs setup
+## Find Jobs setup
 
-Open the **Discover Jobs** tab. To enable live fetching, add an Apify token to `server/.env`:
+To enable auto job-finding, add keys to `server/.env`:
 
 ```
-APIFY_TOKEN=your_apify_token   # from console.apify.com/account/integrations
+APIFY_TOKEN=your_apify_token              # console.apify.com/account/integrations  (required)
 APIFY_ACTOR=openclawai/job-board-scraper
+ANTHROPIC_API_KEY=sk-ant-api03-...        # console.anthropic.com/settings/keys  (optional; LLM resumes)
+ANTHROPIC_MODEL=claude-3-5-haiku-latest
 ```
 
-Restart the backend, set your Role/Location in the Discover tab, and click **Refresh now**. With a token present, the backend also re-fetches every 2 hours automatically (keep the server running). Each result includes a match score and a tailored resume you can copy or **Save to My Jobs**.
+Restart the backend, then on the **Not Applied** tab set your Role/Location and click **Find & tailor jobs**. Matches are scored, given a tailored resume, and added to Not Applied; the backend also re-fetches every 2 hours (keep the server running).
+
+- Apify is pay-per-result (~$0.005/job) — keep "Per board" modest.
+- Without `ANTHROPIC_API_KEY` (or if the account has no credits), resumes use a built-in template; add a funded key to switch to Claude automatically.
 
 ## Tech stack
 
