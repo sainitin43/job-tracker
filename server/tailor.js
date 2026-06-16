@@ -53,3 +53,55 @@ ${(match?.matched || []).concat(match?.missing || []).join(", ")}
 EDUCATION
 Your education here.`;
 }
+
+// LLM-tailored resume via Anthropic (Claude). Falls back to template if no key/error.
+export async function tailorResumeSmart(job, profile, match) {
+  if (!process.env.ANTHROPIC_API_KEY) return tailorResume(job, profile, match);
+  try {
+    return await tailorWithClaude(job, profile, match);
+  } catch (e) {
+    console.error("[tailor] LLM failed, using template:", e.message);
+    return tailorResume(job, profile, match);
+  }
+}
+
+async function tailorWithClaude(job, profile, match) {
+  const base = (profile?.baseResume || "").trim() || "(No base resume on file — write a strong, truthful resume from the matched skills.)";
+  const prompt =
+`You are an expert ATS resume writer. Tailor the candidate's resume to this specific job to MAXIMIZE ATS keyword match while staying 100% truthful (never invent employers, titles, or experience the candidate doesn't have). Mirror the job's terminology. Output ONLY the final resume as clean plain text (no markdown tables, no commentary).
+
+=== JOB ===
+Title: ${job.title}
+Company: ${job.company}
+Location: ${job.location || ""}
+Description:
+${(job.description || "").slice(0, 5000)}
+
+=== CANDIDATE BASE RESUME ===
+${base.slice(0, 5000)}
+
+=== SKILLS TO EMPHASIZE (already present in candidate background) ===
+${(match?.matched || []).join(", ") || "core engineering skills"}`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest",
+      max_tokens: 1800,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Anthropic ${res.status}: ${t.slice(0, 160)}`);
+  }
+  const data = await res.json();
+  const text = (data.content || []).map(c => c.text || "").join("\n").trim();
+  if (!text) throw new Error("empty LLM response");
+  return text;
+}

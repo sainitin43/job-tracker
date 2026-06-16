@@ -481,3 +481,40 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .techChip.clear { background: rgba(248,113,113,.14); color: #ffb4b4; border-color: rgba(248,113,113,.3); }
 
 .resultCount { color: var(--text-dim); font-size: 13px; align-self: center; }
+
+/* ---------------- View tabs (Not Applied / Applied / Favourite) ---------------- */
+.viewTabs { display: flex; gap: 8px; padding: 14px 40px 0; flex-wrap: wrap; }
+.viewTab {
+  background: #131c34; border: 1px solid var(--line); color: #c8d2ee;
+  border-radius: 12px; padding: 10px 16px; font-weight: 700; font-size: 14px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.viewTab:hover { background: #1b2747; }
+.viewTab.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #fff; box-shadow: 0 8px 22px rgba(124,92,255,.35); }
+.tabCount { background: rgba(255,255,255,.16); border-radius: 999px; padding: 1px 9px; font-size: 12px; }
+
+/* ---------------- Find bar ---------------- */
+.findBar {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px;
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; margin-bottom: 18px;
+}
+.findBar label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-dim); font-weight: 700; }
+.findBar input[type="text"], .findBar label > input { min-width: 200px; }
+.findBar .checkRow { flex-direction: row; align-items: center; gap: 8px; color: #c8d2ee; }
+.findBar .checkRow input { width: auto; }
+.findHint { color: var(--text-dim); font-size: 12.5px; align-self: center; }
+
+/* ---------------- Score + star + source ---------------- */
+.scorePill { padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 800; border: 1px solid transparent; }
+.score-high { background: rgba(52,211,153,.16); color: #7ff0c4; border-color: rgba(52,211,153,.4); }
+.score-mid { background: rgba(245,179,66,.16); color: #ffd07a; border-color: rgba(245,179,66,.4); }
+.score-low { background: rgba(154,166,191,.16); color: #c7cfde; border-color: rgba(154,166,191,.35); }
+.sourceBadge { padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: #16203c; color: #9fb0d6; border: 1px solid var(--line); text-transform: capitalize; }
+.starBtn { margin-left: auto; background: transparent; border: none; color: #6b7794; font-size: 22px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.starBtn:hover { color: #ffd166; background: transparent; }
+.starBtn.on { color: #ffcf4d; }
+
+/* ---------------- Apply prompt ---------------- */
+.modalCard.small { max-width: 460px; }
+.applyQ { color: #d6ddf2; line-height: 1.6; margin: 4px 0 6px; }

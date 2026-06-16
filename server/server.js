@@ -6,7 +6,7 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 import * as store from "./store.js";
 import * as discover from "./discover.js";
-import { scoreMatch, tailorResume } from "./tailor.js";
+import { scoreMatch, tailorResumeSmart } from "./tailor.js";
 
 dotenv.config();
 
@@ -59,7 +59,35 @@ function rowToJob(r) {
     resume: r.resume || "",
     resumeFile: r.resume_file || null,
     resumeFileName: r.resume_name || "",
-    resumeFileType: r.resume_type || ""
+    resumeFileType: r.resume_type || "",
+    favourite: !!r.favourite,
+    score: typeof r.score === "number" ? r.score : null,
+    source: r.source || ""
+  };
+}
+
+function makeJobRow(b, userId) {
+  return {
+    id: crypto.randomUUID(),
+    user_id: userId,
+    company: (b.company || "").trim(),
+    title: (b.title || "").trim(),
+    url: b.url || "",
+    location: b.location || "",
+    type: b.type || "Full-time",
+    pay: b.pay || "",
+    status: b.status || "Applied",
+    date_added: b.dateAdded || today(),
+    date_applied: b.dateApplied || "",
+    description: b.description || "",
+    resume: b.resume || "",
+    resume_file: b.resumeFile || null,
+    resume_name: b.resumeFileName || "",
+    resume_type: b.resumeFileType || "",
+    favourite: !!b.favourite,
+    score: typeof b.score === "number" ? b.score : null,
+    source: b.source || "",
+    created_at: now()
   };
 }
 
@@ -139,25 +167,7 @@ app.post("/api/jobs", auth, (req, res) => {
   if (!b.company?.trim() || !b.title?.trim()) {
     return res.status(400).json({ error: "Company and job title are required" });
   }
-  const job = {
-    id: crypto.randomUUID(),
-    user_id: req.user.id,
-    company: b.company.trim(),
-    title: b.title.trim(),
-    url: b.url || "",
-    location: b.location || "",
-    type: b.type || "Full-time",
-    pay: b.pay || "",
-    status: b.status || "Applied",
-    date_added: b.dateAdded || today(),
-    date_applied: b.dateApplied || "",
-    description: b.description || "",
-    resume: b.resume || "",
-    resume_file: b.resumeFile || null,
-    resume_name: b.resumeFileName || "",
-    resume_type: b.resumeFileType || "",
-    created_at: now()
-  };
+  const job = makeJobRow(b, req.user.id);
   store.addJob(job);
   res.status(201).json({ job: rowToJob(job) });
 });
@@ -179,7 +189,10 @@ app.put("/api/jobs/:id", auth, (req, res) => {
     resume: b.resume ?? existing.resume,
     resume_file: b.resumeFile !== undefined ? b.resumeFile : existing.resume_file,
     resume_name: b.resumeFileName ?? existing.resume_name,
-    resume_type: b.resumeFileType ?? existing.resume_type
+    resume_type: b.resumeFileType ?? existing.resume_type,
+    favourite: b.favourite !== undefined ? !!b.favourite : existing.favourite,
+    score: b.score !== undefined ? b.score : existing.score,
+    source: b.source ?? existing.source
   };
   const updated = store.updateJob(req.params.id, req.user.id, patch);
   res.json({ job: rowToJob(updated) });
@@ -216,20 +229,41 @@ function profileFor(user, prefs) {
   };
 }
 
-async function refreshDiscover(user) {
+// Fetch fresh jobs, keep good fits, tailor a resume (LLM), and add them as
+// "Not Applied" jobs for the user. Dedupes by URL. Returns count added.
+const MIN_SCORE = 35;     // a job must score at least this to be added
+const MAX_NEW = 8;        // cap new jobs per run (controls Apify + LLM cost)
+
+async function findAndCreateJobs(user) {
   const d = store.getDiscover(user.id);
   store.setRefreshing(user.id, true);
   try {
     const raw = await discover.fetchJobs(d.prefs);
     const profile = profileFor(user, d.prefs);
-    const enriched = raw
-      .map(job => {
-        const match = scoreMatch(job, profile);
-        return { ...job, score: match.score, matched: match.matched, resume: tailorResume(job, profile, match) };
-      })
-      .sort((a, b) => b.score - a.score);
-    store.setDiscoverJobs(user.id, enriched);
-    return enriched;
+    const existingUrls = new Set(
+      store.getJobsByUser(user.id).map(j => (j.url || "").toLowerCase()).filter(Boolean)
+    );
+    const scored = raw
+      .map(job => ({ job, match: scoreMatch(job, profile) }))
+      .filter(x => x.match.score >= MIN_SCORE)
+      .sort((a, b) => b.match.score - a.match.score);
+
+    let added = 0;
+    for (const { job, match } of scored) {
+      if (added >= MAX_NEW) break;
+      const u = (job.url || "").toLowerCase();
+      if (u && existingUrls.has(u)) continue;
+      const resume = await tailorResumeSmart(job, profile, match);
+      store.addJob(makeJobRow({
+        company: job.company, title: job.title, url: job.url, location: job.location,
+        type: job.type, pay: job.pay, status: "Not Applied", description: job.description,
+        resume, favourite: false, score: match.score, source: job.source
+      }, user.id));
+      if (u) existingUrls.add(u);
+      added++;
+    }
+    store.setDiscoverJobs(user.id, []); // we now store fits as real jobs, not a separate list
+    return added;
   } finally {
     store.setRefreshing(user.id, false);
   }
@@ -237,18 +271,11 @@ async function refreshDiscover(user) {
 
 app.get("/api/discover", auth, (req, res) => {
   const d = store.getDiscover(req.user.id);
-  res.json({
-    enabled: discover.apifyEnabled(),
-    prefs: d.prefs,
-    jobs: d.jobs,
-    lastRefreshedAt: d.lastRefreshedAt,
-    refreshing: d.refreshing
-  });
+  res.json({ enabled: discover.apifyEnabled(), prefs: d.prefs, lastRefreshedAt: d.lastRefreshedAt, refreshing: d.refreshing });
 });
 
 app.put("/api/discover/prefs", auth, (req, res) => {
-  const prefs = store.setDiscoverPrefs(req.user.id, req.body || {});
-  res.json({ prefs });
+  res.json({ prefs: store.setDiscoverPrefs(req.user.id, req.body || {}) });
 });
 
 app.post("/api/discover/refresh", auth, async (req, res) => {
@@ -257,8 +284,8 @@ app.post("/api/discover/refresh", auth, async (req, res) => {
   }
   if (req.body && Object.keys(req.body).length) store.setDiscoverPrefs(req.user.id, req.body);
   try {
-    const jobs = await refreshDiscover(req.user);
-    res.json({ jobs, lastRefreshedAt: store.getDiscover(req.user.id).lastRefreshedAt });
+    const added = await findAndCreateJobs(req.user);
+    res.json({ added, jobs: store.getJobsByUser(req.user.id).map(rowToJob), lastRefreshedAt: store.getDiscover(req.user.id).lastRefreshedAt });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
@@ -277,12 +304,12 @@ async function refreshAllUsers() {
   if (!discover.apifyEnabled()) return;
   for (const u of store.allUsers()) {
     const d = store.getDiscover(u.id);
-    if (!d.lastRefreshedAt && !d.prefs) continue; // only users who've set up discover
+    if (!d.lastRefreshedAt) continue; // only users who've run a search at least once
     try {
-      console.log(`[cron] refreshing discover for ${u.email}…`);
-      await refreshDiscover(u);
+      const added = await findAndCreateJobs(u);
+      console.log(`[cron] ${u.email}: added ${added} new tailored jobs`);
     } catch (e) {
-      console.error(`[cron] refresh failed for ${u.email}:`, e.message);
+      console.error(`[cron] failed for ${u.email}:`, e.message);
     }
   }
 }

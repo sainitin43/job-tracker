@@ -1,24 +1,16 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import "./App.css";
 
-/* ------------------------------------------------------------------ */
-/* Backend-connected client. Talks to the local API (Express + JWT).  */
-/* ------------------------------------------------------------------ */
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 const TOKEN_KEY = "jt-token";
 
 const GOOGLE_CLIENT_ID = "400407178471-aldf00pvmnsbo41lg8sfsvv1eip7mu0o.apps.googleusercontent.com";
-function googleClientId() {
-  return GOOGLE_CLIENT_ID || localStorage.getItem("jt-google-client-id") || "";
-}
-
-const today = () => new Date().toISOString().slice(0, 10);
+function googleClientId() { return GOOGLE_CLIENT_ID || localStorage.getItem("jt-google-client-id") || ""; }
 
 const STATUSES = ["Not Applied", "Applied", "Interviewing", "Rejected", "Offer"];
-const STATUS_FILTERS = ["All", ...STATUSES];
 const statusSlug = s => (s || "").toLowerCase().replace(/\s+/g, "-");
+const TABS = ["Not Applied", "Applied", "Favourite"];
 
-// Tech stacks for the filter. A job "matches" a tech if its text contains it.
 const TECH_STACKS = [
   "Java", "Kotlin", "Android", "Jetpack Compose", "Swift", "iOS",
   "JavaScript", "TypeScript", "React", "Node", "Python", "Go", "C++", "C#",
@@ -28,14 +20,13 @@ const TECH_STACKS = [
 function jobMatchesTech(job, techs) {
   if (!techs.length) return true;
   const hay = `${job.title} ${job.description} ${job.company} ${job.pay}`.toLowerCase();
-  // match if the job contains ANY of the selected techs
   return techs.some(t => hay.includes(t.toLowerCase()));
 }
 
 const blankJob = {
   company: "", title: "", url: "", location: "", type: "Full-time", pay: "",
-  status: "Applied", dateApplied: "", description: "",
-  resume: "", resumeFile: null, resumeFileName: "", resumeFileType: ""
+  status: "Not Applied", dateApplied: "", description: "",
+  resume: "", resumeFile: null, resumeFileName: "", resumeFileType: "", favourite: false
 };
 
 function download(name, content, type = "text/plain") {
@@ -46,32 +37,24 @@ function download(name, content, type = "text/plain") {
   URL.revokeObjectURL(url);
 }
 
-/* --------------------------- API helper --------------------------- */
 async function api(path, { method = "GET", body, token } = {}) {
   const res = await fetch(API_BASE + path, {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: "Bearer " + token } : {})
-    },
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
     body: body ? JSON.stringify(body) : undefined
   });
   let data = null;
-  try { data = await res.json(); } catch { /* no body */ }
+  try { data = await res.json(); } catch { /* */ }
   if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
   return data;
 }
 
-/* ----------------------- Google redirect flow --------------------- */
 function signInWithGoogle() {
   const cid = googleClientId();
   if (!cid) { alert("Google sign-in isn't configured (missing client ID)."); return; }
   const params = new URLSearchParams({
-    client_id: cid,
-    redirect_uri: window.location.origin + window.location.pathname,
-    response_type: "id_token",
-    scope: "openid email profile",
-    prompt: "select_account",
+    client_id: cid, redirect_uri: window.location.origin + window.location.pathname,
+    response_type: "id_token", scope: "openid email profile", prompt: "select_account",
     nonce: Math.random().toString(36).slice(2) + Date.now()
   });
   window.location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
@@ -91,53 +74,33 @@ export default function App() {
   const [authError, setAuthError] = useState("");
 
   const onAuthed = useCallback((tok, usr) => {
-    localStorage.setItem(TOKEN_KEY, tok);
-    setToken(tok);
-    setUser(usr);
+    localStorage.setItem(TOKEN_KEY, tok); setToken(tok); setUser(usr);
   }, []);
+  function logout() { localStorage.removeItem(TOKEN_KEY); setToken(null); setUser(null); }
 
-  function logout() {
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
-    setUser(null);
-  }
-
-  // boot: handle google redirect, or validate existing token
   useEffect(() => {
     (async () => {
       const cred = takeGoogleCredentialFromUrl();
       if (cred) {
-        try {
-          const { token: tok, user: usr } = await api("/auth/google", { method: "POST", body: { credential: cred } });
-          onAuthed(tok, usr);
-        } catch (e) { setAuthError(e.message); }
+        try { const { token: tok, user: usr } = await api("/auth/google", { method: "POST", body: { credential: cred } }); onAuthed(tok, usr); }
+        catch (e) { setAuthError(e.message); }
         finally { setBooting(false); }
         return;
       }
       const existing = localStorage.getItem(TOKEN_KEY);
       if (existing) {
-        try {
-          const { user: usr } = await api("/auth/me", { token: existing });
-          setUser(usr);
-        } catch {
-          localStorage.removeItem(TOKEN_KEY);
-          setToken(null);
-        }
+        try { const { user: usr } = await api("/auth/me", { token: existing }); setUser(usr); }
+        catch { localStorage.removeItem(TOKEN_KEY); setToken(null); }
       }
       setBooting(false);
     })();
   }, [onAuthed]);
 
-  if (booting) {
-    return <div className="bootWrap"><div className="spinner" /><p>Loading…</p></div>;
-  }
-  if (!user) {
-    return <AuthScreen onAuthed={onAuthed} initialError={authError} />;
-  }
+  if (booting) return <div className="bootWrap"><div className="spinner" /><p>Loading…</p></div>;
+  if (!user) return <AuthScreen onAuthed={onAuthed} initialError={authError} />;
   return <Tracker key={user.id} user={user} token={token} onLogout={logout} onAuthExpired={logout} />;
 }
 
-/* ------------------------------ Auth ------------------------------ */
 function AuthScreen({ onAuthed, initialError }) {
   const [mode, setMode] = useState("login");
   const [firstName, setFirstName] = useState("");
@@ -147,19 +110,14 @@ function AuthScreen({ onAuthed, initialError }) {
   const [busy, setBusy] = useState(false);
 
   async function submit(e) {
-    e.preventDefault();
-    setError(""); setBusy(true);
+    e.preventDefault(); setError(""); setBusy(true);
     try {
-      if (mode === "signup") {
-        const { token, user } = await api("/auth/signup", { method: "POST", body: { firstName, email, password } });
-        onAuthed(token, user);
-      } else {
-        const { token, user } = await api("/auth/login", { method: "POST", body: { email, password } });
-        onAuthed(token, user);
-      }
-    } catch (err) {
-      setError(err.message || "Something went wrong");
-    } finally { setBusy(false); }
+      const path = mode === "signup" ? "/auth/signup" : "/auth/login";
+      const body = mode === "signup" ? { firstName, email, password } : { email, password };
+      const { token, user } = await api(path, { method: "POST", body });
+      onAuthed(token, user);
+    } catch (err) { setError(err.message || "Something went wrong"); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -168,65 +126,48 @@ function AuthScreen({ onAuthed, initialError }) {
         <p className="eyebrow">Job Application Tracker</p>
         <h1>{mode === "login" ? "Welcome back" : "Create your account"}</h1>
         <p className="authSub">Your applications are saved securely to your account.</p>
-
-        <button type="button" className="googleBtn" onClick={signInWithGoogle}>
-          <GoogleIcon /><span>Continue with Google</span>
-        </button>
-
+        <button type="button" className="googleBtn" onClick={signInWithGoogle}><GoogleIcon /><span>Continue with Google</span></button>
         <div className="authDivider"><span>or use email</span></div>
-
         <div className="authTabs">
           <button type="button" className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>Log in</button>
           <button type="button" className={mode === "signup" ? "active" : ""} onClick={() => { setMode("signup"); setError(""); }}>Sign up</button>
         </div>
-
-        {mode === "signup" && (
-          <input placeholder="First name" value={firstName} onChange={e => setFirstName(e.target.value)} />
-        )}
+        {mode === "signup" && <input placeholder="First name" value={firstName} onChange={e => setFirstName(e.target.value)} />}
         <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
         <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-
         {error && <p className="authError">{error}</p>}
-
-        <button className="primary authSubmit" type="submit" disabled={busy}>
-          {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
-        </button>
+        <button className="primary authSubmit" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}</button>
         <p className="authNote">Passwords are hashed on the server. Sessions use a secure token.</p>
       </form>
     </div>
   );
 }
 
-/* ---------------------------- Tracker ----------------------------- */
 function Tracker({ user, token, onLogout, onAuthExpired }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState(blankJob);
   const [editingId, setEditingId] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [techFilter, setTechFilter] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [expandedId, setExpandedId] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const [view, setView] = useState("jobs"); // "jobs" | "discover"
-  const [disc, setDisc] = useState(null);    // { enabled, prefs, jobs, lastRefreshedAt }
-  const [discLoading, setDiscLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [discExpanded, setDiscExpanded] = useState(null); // {id, tab:'jd'|'resume'}
+  const [tab, setTab] = useState("Not Applied");
+  const [search, setSearch] = useState("");
+  const [techFilter, setTechFilter] = useState([]);
+  const [expanded, setExpanded] = useState(null); // { id, tab:'jd'|'resume' }
 
-  function toggleTech(t) {
-    setTechFilter(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]));
-  }
+  const [prefs, setPrefs] = useState({ searchTerm: "Software Engineer", location: "United States", isRemote: false, maxResults: 10 });
+  const [apifyEnabled, setApifyEnabled] = useState(false);
+  const [finding, setFinding] = useState(false);
+
+  const [applyJob, setApplyJob] = useState(null);
+  const pendingRef = useRef(null);
 
   const call = useCallback((path, opts = {}) => api(path, { ...opts, token }).catch(err => {
     if (/401|token/i.test(err.message)) onAuthExpired();
     throw err;
   }), [token, onAuthExpired]);
 
-  // load jobs (with one-time migration of any old localStorage jobs for this email)
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -237,31 +178,45 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
           if (migrated) ({ jobs: server } = await call("/jobs"));
         }
         setJobs(server);
-        setSelectedId(server[0]?.id || null);
-      } catch { /* handled in call */ }
+        try { const d = await call("/discover"); setPrefs(p => ({ ...p, ...d.prefs })); setApifyEnabled(d.enabled); } catch { /* */ }
+      } catch { /* */ }
       finally { setLoading(false); }
     })();
   }, [call, user.email]);
 
+  // "Did you apply?" — when the window regains focus after opening a posting
+  useEffect(() => {
+    function check() {
+      const id = pendingRef.current;
+      if (!id) return;
+      pendingRef.current = null;
+      const job = jobs.find(j => j.id === id);
+      if (job && job.status === "Not Applied") setApplyJob(job);
+    }
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, [jobs]);
+
+  function toggleTech(t) { setTechFilter(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])); }
+  function setPref(key, value) { setPrefs(p => ({ ...p, [key]: value })); }
+
+  const counts = useMemo(() => ({
+    "Not Applied": jobs.filter(j => j.status === "Not Applied").length,
+    "Applied": jobs.filter(j => j.status !== "Not Applied").length,
+    "Favourite": jobs.filter(j => j.favourite).length
+  }), [jobs]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return jobs.filter(j => {
+      const inTab = tab === "Favourite" ? j.favourite : tab === "Applied" ? j.status !== "Not Applied" : j.status === "Not Applied";
+      if (!inTab) return false;
       const textMatch =
-        j.company.toLowerCase().includes(q) ||
-        j.title.toLowerCase().includes(q) ||
-        j.status.toLowerCase().includes(q) ||
-        (j.description || "").toLowerCase().includes(q);
-      const statusOk = statusFilter === "All" || j.status === statusFilter;
-      return statusOk && textMatch && jobMatchesTech(j, techFilter);
+        j.company.toLowerCase().includes(q) || j.title.toLowerCase().includes(q) ||
+        j.status.toLowerCase().includes(q) || (j.description || "").toLowerCase().includes(q);
+      return textMatch && jobMatchesTech(j, techFilter);
     });
-  }, [jobs, search, statusFilter, techFilter]);
-
-  const stats = {
-    total: jobs.length,
-    applied: jobs.filter(j => j.status === "Applied").length,
-    interviewing: jobs.filter(j => j.status === "Interviewing").length,
-    offers: jobs.filter(j => j.status === "Offer").length
-  };
+  }, [jobs, tab, search, techFilter]);
 
   async function saveJob() {
     if (!draft.company.trim() || !draft.title.trim()) { alert("Company and job title are required."); return; }
@@ -270,92 +225,61 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
       if (editingId) {
         const { job } = await call(`/jobs/${editingId}`, { method: "PUT", body: draft });
         setJobs(prev => prev.map(j => j.id === editingId ? job : j));
-        setSelectedId(job.id);
       } else {
         const { job } = await call("/jobs", { method: "POST", body: draft });
         setJobs(prev => [job, ...prev]);
-        setSelectedId(job.id);
       }
       closeForm();
     } catch (e) { alert(e.message); }
     finally { setBusy(false); }
   }
-
   function openAddForm() { setDraft({ ...blankJob }); setEditingId(null); setShowForm(true); }
   function closeForm() { setDraft({ ...blankJob }); setEditingId(null); setShowForm(false); }
-  function editJob(job) { setDraft(job); setEditingId(job.id); setSelectedId(job.id); setShowForm(true); }
+  function editJob(job) { setDraft(job); setEditingId(job.id); setShowForm(true); }
 
   async function deleteJob(id) {
     if (!confirm("Delete this job?")) return;
-    try {
-      await call(`/jobs/${id}`, { method: "DELETE" });
-      setJobs(prev => {
-        const next = prev.filter(j => j.id !== id);
-        setSelectedId(s => (s === id ? next[0]?.id || null : s));
-        return next;
-      });
-    } catch (e) { alert(e.message); }
+    try { await call(`/jobs/${id}`, { method: "DELETE" }); setJobs(prev => prev.filter(j => j.id !== id)); }
+    catch (e) { alert(e.message); }
   }
-
   async function updateStatus(job, status) {
     if (status === job.status) return;
     const prev = job.status;
-    setJobs(p => p.map(j => (j.id === job.id ? { ...j, status } : j))); // optimistic
+    setJobs(p => p.map(j => (j.id === job.id ? { ...j, status } : j)));
+    try { await call(`/jobs/${job.id}`, { method: "PUT", body: { status } }); }
+    catch (e) { setJobs(p => p.map(j => (j.id === job.id ? { ...j, status: prev } : j))); alert(e.message); }
+  }
+  async function toggleFavourite(job) {
+    const next = !job.favourite;
+    setJobs(p => p.map(j => (j.id === job.id ? { ...j, favourite: next } : j)));
+    try { await call(`/jobs/${job.id}`, { method: "PUT", body: { favourite: next } }); }
+    catch (e) { setJobs(p => p.map(j => (j.id === job.id ? { ...j, favourite: !next } : j))); alert(e.message); }
+  }
+  function toggleExpand(id, t) { setExpanded(prev => (prev && prev.id === id && prev.tab === t ? null : { id, tab: t })); }
+
+  function openPosting(job) {
+    if (job.url) window.open(job.url, "_blank", "noopener");
+    if (job.status === "Not Applied") pendingRef.current = job.id;
+  }
+  async function confirmApplied(job, yes) {
+    setApplyJob(null);
+    if (yes) await updateStatus(job, "Applied");
+  }
+
+  async function findJobs() {
+    if (!apifyEnabled) { alert("Add APIFY_TOKEN to the backend .env to enable job finding."); return; }
+    setFinding(true);
     try {
-      await call(`/jobs/${job.id}`, { method: "PUT", body: { status } });
-    } catch (e) {
-      setJobs(p => p.map(j => (j.id === job.id ? { ...j, status: prev } : j))); // revert
-      alert(e.message);
-    }
-  }
-
-  function toggleExpand(id) { setExpandedId(prev => (prev === id ? null : id)); }
-  function downloadResume(job) {
-    if (!job?.resumeFile) return;
-    const a = document.createElement("a");
-    a.href = job.resumeFile; a.download = job.resumeFileName || "resume"; a.click();
-  }
-  function exportData() {
-    download(`${user.firstName}-job-tracker-backup.json`, JSON.stringify(jobs, null, 2), "application/json");
-  }
-
-  // ---- Discover (live jobs via backend/Apify) ----
-  const loadDiscover = useCallback(async () => {
-    setDiscLoading(true);
-    try { setDisc(await call("/discover")); }
-    catch { /* handled */ }
-    finally { setDiscLoading(false); }
-  }, [call]);
-
-  async function refreshDiscover() {
-    setRefreshing(true);
-    try {
-      const body = disc?.prefs || {};
-      const { jobs: found, lastRefreshedAt } = await call("/discover/refresh", { method: "POST", body });
-      setDisc(d => ({ ...d, jobs: found, lastRefreshedAt }));
+      const { added, jobs: all } = await call("/discover/refresh", { method: "POST", body: prefs });
+      if (all) setJobs(all);
+      setTab("Not Applied");
+      alert(added ? `Added ${added} new tailored ${added === 1 ? "job" : "jobs"} to Not Applied.` : "No new matching jobs found right now — try a broader role/location.");
     } catch (e) { alert(e.message); }
-    finally { setRefreshing(false); }
+    finally { setFinding(false); }
   }
 
-  function setPref(key, value) {
-    setDisc(d => ({ ...d, prefs: { ...d.prefs, [key]: value } }));
-  }
-
-  async function saveDiscovered(job) {
-    try {
-      const body = {
-        company: job.company, title: job.title, url: job.url, location: job.location,
-        type: job.type, pay: job.pay, status: "Not Applied", description: job.description, resume: job.resume || ""
-      };
-      const { job: saved } = await call("/jobs", { method: "POST", body });
-      setJobs(prev => [saved, ...prev]);
-      alert(`Saved “${job.title}” to your jobs.`);
-    } catch (e) { alert(e.message); }
-  }
-
-  useEffect(() => {
-    if (view === "discover" && disc === null) loadDiscover();
-  }, [view, disc, loadDiscover]);
+  function exportData() { download(`${user.firstName}-jobs.json`, JSON.stringify(jobs, null, 2), "application/json"); }
+  function downloadResume(job) { if (!job?.resume) return; download(`${job.company}-${job.title}-resume.txt`, job.resume); }
 
   function attachResume(file) {
     if (!file) return;
@@ -363,25 +287,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
     reader.onload = () => setDraft(prev => ({ ...prev, resumeFile: reader.result, resumeFileName: file.name, resumeFileType: file.type || "application/octet-stream" }));
     reader.readAsDataURL(file);
   }
-  function downloadAttachedResume() {
-    if (!draft.resumeFile) return;
-    const a = document.createElement("a");
-    a.href = draft.resumeFile; a.download = draft.resumeFileName || "resume"; a.click();
-  }
-  function removeAttachedResume() {
-    setDraft(prev => ({ ...prev, resumeFile: null, resumeFileName: "", resumeFileType: "" }));
-  }
-  function generateResume() {
-    const resume = `YOUR NAME
-Software Engineer
-
-SUMMARY
-Tailored for ${draft.company || "the company"}'s ${draft.title || "target"} role.
-
-JOB DESCRIPTION KEYWORDS
-${draft.description || "Paste the job description to customize keywords."}`;
-    setDraft(prev => ({ ...prev, resume }));
-  }
+  function removeAttachedResume() { setDraft(prev => ({ ...prev, resumeFile: null, resumeFileName: "", resumeFileType: "" })); }
 
   const initials = (user.firstName || user.email).slice(0, 1).toUpperCase();
 
@@ -391,11 +297,12 @@ ${draft.description || "Paste the job description to customize keywords."}`;
         <div>
           <p className="eyebrow">Personal dashboard</p>
           <h1>{user.firstName}'s Jobs</h1>
-          <p>Track Java/Kotlin roles, save resumes, and keep the full job description for every application.</p>
+          <p>Auto-finds matching roles, tailors an ATS resume for each, and tracks them Not Applied → Applied.</p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={openAddForm}>+ Add Job</button>
-          <button onClick={exportData}>Export JSON</button>
+          <button className="primary" onClick={findJobs} disabled={finding}>{finding ? "Finding…" : "✨ Find Jobs"}</button>
+          <button onClick={openAddForm}>+ Add Job</button>
+          <button onClick={exportData}>Export</button>
           <div className="userChip" title={user.email}>
             <span className="avatar">{initials}</span>
             <span className="userName">{user.firstName}</span>
@@ -404,148 +311,107 @@ ${draft.description || "Paste the job description to customize keywords."}`;
         </div>
       </header>
 
-      <nav className="viewTabs">
-        <button className={"viewTab" + (view === "jobs" ? " active" : "")} onClick={() => setView("jobs")}>
-          📋 My Jobs <span className="tabCount">{jobs.length}</span>
-        </button>
-        <button className={"viewTab" + (view === "discover" ? " active" : "")} onClick={() => setView("discover")}>
-          🧭 Discover Jobs
-        </button>
-      </nav>
-
-      {view === "jobs" && (
       <section className="searchHero">
         <div className="searchBarWrap">
           <span className="searchIcon">🔍</span>
-          <input
-            className="searchBar"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search your jobs — try “Java”, “Software Engineer”, a company…"
-          />
+          <input className="searchBar" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search — try “Java”, “Software Engineer”, a company…" />
           {search && <button className="clearSearch" onClick={() => setSearch("")} aria-label="Clear">×</button>}
         </div>
         <div className="techChips">
           <span className="techChipsLabel">Tech stack:</span>
           {TECH_STACKS.map(t => (
-            <button
-              key={t}
-              className={"techChip" + (techFilter.includes(t) ? " on" : "")}
-              onClick={() => toggleTech(t)}
-            >
-              {t}
-            </button>
+            <button key={t} className={"techChip" + (techFilter.includes(t) ? " on" : "")} onClick={() => toggleTech(t)}>{t}</button>
           ))}
-          {techFilter.length > 0 && (
-            <button className="techChip clear" onClick={() => setTechFilter([])}>Clear ×</button>
-          )}
+          {techFilter.length > 0 && <button className="techChip clear" onClick={() => setTechFilter([])}>Clear ×</button>}
         </div>
       </section>
-      )}
+
+      <nav className="viewTabs">
+        {TABS.map(t => (
+          <button key={t} className={"viewTab" + (tab === t ? " active" : "")} onClick={() => setTab(t)}>
+            {t === "Favourite" ? "⭐ Favourite" : t} <span className="tabCount">{counts[t]}</span>
+          </button>
+        ))}
+      </nav>
 
       <section className="layout">
         <div className="left">
-          {view === "discover" && (
-            <Discover
-              disc={disc}
-              loading={discLoading}
-              refreshing={refreshing}
-              onRefresh={refreshDiscover}
-              setPref={setPref}
-              onSave={saveDiscovered}
-              expanded={discExpanded}
-              setExpanded={setDiscExpanded}
-            />
+          {tab === "Not Applied" && (
+            <div className="findBar">
+              <label>Role<input value={prefs.searchTerm || ""} onChange={e => setPref("searchTerm", e.target.value)} placeholder="e.g. Android Engineer" /></label>
+              <label>Location<input value={prefs.location || ""} onChange={e => setPref("location", e.target.value)} placeholder="e.g. Remote, San Jose, CA" /></label>
+              <label className="checkRow"><input type="checkbox" checked={!!prefs.isRemote} onChange={e => setPref("isRemote", e.target.checked)} /> Remote only</label>
+              <button className="primary" onClick={findJobs} disabled={finding || !apifyEnabled}>{finding ? "Searching…" : "✨ Find & tailor jobs"}</button>
+              {!apifyEnabled && <span className="findHint">Add APIFY_TOKEN to enable auto-find</span>}
+            </div>
           )}
 
-          {view === "jobs" && (<>
-          <div className="stats">
-            <Card label="Total Jobs" value={stats.total} />
-            <Card label="Applied" value={stats.applied} />
-            <Card label="Interviewing" value={stats.interviewing} />
-            <Card label="Offers" value={stats.offers} />
-          </div>
-
           <section className="panel">
-            <div className="panelHead">
-              <div>
-                <h2>Applications</h2>
-                <p>Use “View Description” to expand the complete job description for each role.</p>
-              </div>
-              <button className="primary" onClick={openAddForm}>+ Add Job</button>
-            </div>
-
-            <div className="filters">
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                {STATUS_FILTERS.map(s => <option key={s}>{s}</option>)}
-              </select>
-              {(search || techFilter.length > 0) && (
-                <span className="resultCount">{filtered.length} of {jobs.length} shown</span>
-              )}
-            </div>
-
             <div className="jobList">
-              {loading && <p className="emptyState">Loading your applications…</p>}
+              {loading && <p className="emptyState">Loading…</p>}
               {!loading && filtered.length === 0 && (
-                <p className="emptyState">No applications yet. Click “+ Add Job” to get started.</p>
+                <p className="emptyState">
+                  {tab === "Not Applied" ? "No pending jobs. Click “Find Jobs” to auto-fetch matches with tailored resumes." :
+                    tab === "Applied" ? "Nothing applied yet. Open a job and mark it applied when you do." :
+                      "No favourites yet — tap the ⭐ on any job."}
+                </p>
               )}
 
               {!loading && filtered.map(job => {
-                const open = expandedId === job.id;
+                const showJD = expanded && expanded.id === job.id && expanded.tab === "jd";
+                const showResume = expanded && expanded.id === job.id && expanded.tab === "resume";
                 return (
-                  <div
-                    key={job.id}
-                    className={"jobCard" + (selectedId === job.id ? " selected" : "") + (open ? " expanded" : "")}
-                    onClick={() => setSelectedId(job.id)}
-                  >
-                    <div className="jobCardHead">
-                      <div className="jobCardInfo">
-                        <div className="jobCardTitleRow">
-                          <h3>{job.company}</h3>
-                          <span className={"statusPill pill-" + statusSlug(job.status)} onClick={e => e.stopPropagation()}>
-                            <select
-                              value={job.status}
-                              onClick={e => e.stopPropagation()}
-                              onChange={e => { e.stopPropagation(); updateStatus(job, e.target.value); }}
-                              aria-label="Change status"
-                            >
-                              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </span>
-                        </div>
-                        <p className="jobRole">{job.title}</p>
-                        <div className="jobMeta">
-                          <span>📍 {job.location || "—"}</span>
-                          <span>💼 {job.type}</span>
-                          <span>💰 {job.pay || "—"}</span>
-                          <span>🗓️ Applied {job.dateApplied || "—"}</span>
-                          <span>{job.resumeFileName ? "📎 " + job.resumeFileName : "📎 No resume"}</span>
-                        </div>
-                      </div>
+                  <div key={job.id} className="jobCard">
+                    <div className="jobCardTitleRow">
+                      <h3>{job.company}</h3>
+                      <span className={"statusPill pill-" + statusSlug(job.status)} onClick={e => e.stopPropagation()}>
+                        <select value={job.status} onChange={e => updateStatus(job, e.target.value)} aria-label="Status">
+                          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </span>
+                      {typeof job.score === "number" && <span className={"scorePill " + scoreClass(job.score)}>{job.score}% match</span>}
+                      <button className={"starBtn" + (job.favourite ? " on" : "")} onClick={() => toggleFavourite(job)} title="Favourite" aria-label="Favourite">
+                        {job.favourite ? "★" : "☆"}
+                      </button>
+                    </div>
+                    <p className="jobRole">{job.title}</p>
+                    <div className="jobMeta">
+                      <span>📍 {job.location || "—"}</span>
+                      <span>💼 {job.type || "—"}</span>
+                      <span>💰 {job.pay || "—"}</span>
+                      {job.source && <span>🌐 {job.source}</span>}
+                      <span>{job.resume ? "📝 Resume ready" : "📝 No resume"}</span>
                     </div>
 
                     <div className="jobCardActions">
-                      <a className="btn ghost" href={job.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>🔗 Open Posting</a>
-                      <button className="btn" disabled={!job.resumeFile} onClick={e => { e.stopPropagation(); downloadResume(job); }}>⬇️ Download Resume</button>
-                      <button className="btn" onClick={e => { e.stopPropagation(); editJob(job); }}>✏️ Edit</button>
-                      <button className="btn danger" onClick={e => { e.stopPropagation(); deleteJob(job.id); }}>🗑️ Delete</button>
-                      <button className={"btn expandToggle" + (open ? " active" : "")} onClick={e => { e.stopPropagation(); toggleExpand(job.id); }}>
-                        {open ? "Hide Description" : "View Description"} <span className="chevron">▾</span>
-                      </button>
+                      <button className="btn primary" onClick={() => openPosting(job)} disabled={!job.url}>🔗 Open & Apply</button>
+                      <button className="btn" onClick={() => toggleExpand(job.id, "resume")} disabled={!job.resume}>{showResume ? "Hide Resume" : "📝 Tailored Resume"}</button>
+                      <button className="btn" onClick={() => toggleExpand(job.id, "jd")}>{showJD ? "Hide JD" : "📄 View JD"}</button>
+                      <button className="btn" onClick={() => editJob(job)}>✏️ Edit</button>
+                      <button className="btn danger" onClick={() => deleteJob(job.id)}>🗑️ Delete</button>
                     </div>
 
-                    <div className={"jobDesc" + (open ? " open" : "")}>
-                      <div className="jobDescInner">
+                    {showJD && (
+                      <div className="jobDesc open"><div className="jobDescInner">
                         <h4>Full Job Description</h4>
-                        <p>{job.description ? job.description : "No job description saved yet. Click Edit to paste the full JD."}</p>
-                      </div>
-                    </div>
+                        <p>{job.description || "No description saved."}</p>
+                      </div></div>
+                    )}
+                    {showResume && (
+                      <div className="jobDesc open"><div className="jobDescInner">
+                        <h4>Tailored ATS Resume</h4>
+                        <textarea className="resumeBox" readOnly value={job.resume || ""} />
+                        <div className="actions wrap">
+                          <button onClick={() => navigator.clipboard.writeText(job.resume || "")}>Copy</button>
+                          <button onClick={() => downloadResume(job)}>Download TXT</button>
+                        </div>
+                      </div></div>
+                    )}
                   </div>
                 );
               })}
             </div>
           </section>
-          </>)}
         </div>
       </section>
 
@@ -553,61 +419,43 @@ ${draft.description || "Paste the job description to customize keywords."}`;
         <div className="modalOverlay" onClick={closeForm}>
           <div className="modalCard" onClick={e => e.stopPropagation()}>
             <div className="modalHead">
-              <div>
-                <p className="eyebrow">{editingId ? "Update application" : "New application"}</p>
-                <h2>{editingId ? "Edit Job" : "Add Job"}</h2>
-              </div>
+              <div><p className="eyebrow">{editingId ? "Update application" : "New application"}</p><h2>{editingId ? "Edit Job" : "Add Job"}</h2></div>
               <button className="closeBtn" onClick={closeForm} aria-label="Close">×</button>
             </div>
-
             <div className="formGrid">
               <input placeholder="Company" value={draft.company} onChange={e => setDraft({ ...draft, company: e.target.value })} />
               <input placeholder="Job title" value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} />
               <input className="wide" placeholder="Job URL" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} />
               <input placeholder="Location" value={draft.location} onChange={e => setDraft({ ...draft, location: e.target.value })} />
-              <select value={draft.type} onChange={e => setDraft({ ...draft, type: e.target.value })}>
-                <option>Full-time</option>
-                <option>Contract</option>
-              </select>
+              <select value={draft.type} onChange={e => setDraft({ ...draft, type: e.target.value })}><option>Full-time</option><option>Contract</option></select>
               <input placeholder="Pay / package" value={draft.pay} onChange={e => setDraft({ ...draft, pay: e.target.value })} />
-              <select value={draft.status} onChange={e => setDraft({ ...draft, status: e.target.value })}>
-                {STATUSES.map(s => <option key={s}>{s}</option>)}
-              </select>
+              <select value={draft.status} onChange={e => setDraft({ ...draft, status: e.target.value })}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
               <input type="date" value={draft.dateApplied} onChange={e => setDraft({ ...draft, dateApplied: e.target.value })} />
               <textarea className="wide bigDescription" placeholder="Paste the complete job description here..." value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} />
             </div>
-
             <h3>Attached Resume File</h3>
             <div className="fileBox">
-              <label className="importBtn center">
-                Attach Resume
-                <input type="file" hidden accept=".pdf,.doc,.docx,.txt,.md" onChange={e => attachResume(e.target.files[0])} />
-              </label>
-              {draft.resumeFileName ? (
-                <>
-                  <p className="fileName">{draft.resumeFileName}</p>
-                  <button onClick={downloadAttachedResume}>Download Attached Resume</button>
-                  <button className="dangerSolid" onClick={removeAttachedResume}>Remove Resume</button>
-                </>
-              ) : (
-                <p className="fileName">No resume attached yet.</p>
-              )}
+              <label className="importBtn center">Attach Resume<input type="file" hidden accept=".pdf,.doc,.docx,.txt,.md" onChange={e => attachResume(e.target.files[0])} /></label>
+              {draft.resumeFileName ? (<><p className="fileName">{draft.resumeFileName}</p><button className="dangerSolid" onClick={removeAttachedResume}>Remove Resume</button></>) : <p className="fileName">No resume attached yet.</p>}
             </div>
-
             <h3>Tailored Resume Text</h3>
             <textarea className="resumeBox" value={draft.resume} onChange={e => setDraft({ ...draft, resume: e.target.value })} placeholder="Paste or generate the tailored resume text for this job..." />
-            <div className="actions wrap">
-              <button onClick={generateResume}>Generate Draft</button>
-              <button onClick={() => navigator.clipboard.writeText(draft.resume)}>Copy</button>
-              <button onClick={() => download(`${draft.company || "resume"}-resume.txt`, draft.resume)}>TXT</button>
-              <button onClick={() => download(`${draft.company || "resume"}-resume.md`, draft.resume)}>MD</button>
-            </div>
-
             <div className="modalActions">
               <button onClick={closeForm}>Cancel</button>
-              <button className="primary" onClick={saveJob} disabled={busy}>
-                {busy ? "Saving…" : editingId ? "Save Changes" : "Add Job"}
-              </button>
+              <button className="primary" onClick={saveJob} disabled={busy}>{busy ? "Saving…" : editingId ? "Save Changes" : "Add Job"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {applyJob && (
+        <div className="modalOverlay" onClick={() => setApplyJob(null)}>
+          <div className="modalCard small" onClick={e => e.stopPropagation()}>
+            <h2>Did you apply?</h2>
+            <p className="applyQ">Did you submit your application to <b>{applyJob.company}</b> — {applyJob.title}?</p>
+            <div className="modalActions">
+              <button onClick={() => confirmApplied(applyJob, false)}>Not yet</button>
+              <button className="primary" onClick={() => confirmApplied(applyJob, true)}>✅ Yes, mark Applied</button>
             </div>
           </div>
         </div>
@@ -616,140 +464,18 @@ ${draft.description || "Paste the job description to customize keywords."}`;
   );
 }
 
-/* one-time import of legacy localStorage jobs into the backend */
 async function migrateLocalJobs(email, call) {
   const flagKey = "jt-migrated::" + email;
   if (localStorage.getItem(flagKey)) return false;
   let local = [];
   try { local = JSON.parse(localStorage.getItem("jt-jobs-v1::" + email) || "[]"); } catch { local = []; }
   if (!Array.isArray(local) || local.length === 0) { localStorage.setItem(flagKey, "1"); return false; }
-  for (const j of local) {
-    try { await call("/jobs", { method: "POST", body: j }); } catch { /* skip bad row */ }
-  }
+  for (const j of local) { try { await call("/jobs", { method: "POST", body: j }); } catch { /* */ } }
   localStorage.setItem(flagKey, "1");
   return true;
 }
 
-function Card({ label, value }) {
-  return (
-    <div className="statCard">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function scoreClass(s) {
-  if (s >= 75) return "score-high";
-  if (s >= 50) return "score-mid";
-  return "score-low";
-}
-
-function Discover({ disc, loading, refreshing, onRefresh, setPref, onSave, expanded, setExpanded }) {
-  if (loading || disc === null) {
-    return <section className="panel"><p className="emptyState">Loading Discover…</p></section>;
-  }
-  const prefs = disc.prefs || {};
-  const jobs = disc.jobs || [];
-  const exp = expanded || {};
-  const toggle = (id, tab) => setExpanded(prev => (prev && prev.id === id && prev.tab === tab ? null : { id, tab }));
-
-  return (
-    <section className="panel">
-      <div className="panelHead">
-        <div>
-          <h2>Discover Jobs</h2>
-          <p>Live matches pulled from LinkedIn, Indeed, Google Jobs & more — scored against your profile, each with a tailored ATS resume. Auto-refreshes every 2 hours.</p>
-        </div>
-        <button className="primary" onClick={onRefresh} disabled={refreshing || !disc.enabled}>
-          {refreshing ? "Searching…" : "🔄 Refresh now"}
-        </button>
-      </div>
-
-      {!disc.enabled && (
-        <div className="setupNote">
-          <strong>Job fetching isn't enabled yet.</strong>
-          <p>Add an Apify API token to the backend to turn this on:</p>
-          <ol>
-            <li>Get a token at <span className="mono">console.apify.com/account/integrations</span></li>
-            <li>In <span className="mono">server/.env</span> set <span className="mono">APIFY_TOKEN=your_token</span></li>
-            <li>Restart the backend, then click <em>Refresh now</em>.</li>
-          </ol>
-        </div>
-      )}
-
-      <div className="discPrefs">
-        <label>Role
-          <input value={prefs.searchTerm || ""} onChange={e => setPref("searchTerm", e.target.value)} placeholder="e.g. Android Engineer" />
-        </label>
-        <label>Location
-          <input value={prefs.location || ""} onChange={e => setPref("location", e.target.value)} placeholder="e.g. Remote, San Jose, CA" />
-        </label>
-        <label>Per board
-          <input type="number" min="1" max="50" value={prefs.maxResults || 10} onChange={e => setPref("maxResults", Number(e.target.value))} />
-        </label>
-        <label className="checkRow">
-          <input type="checkbox" checked={!!prefs.isRemote} onChange={e => setPref("isRemote", e.target.checked)} /> Remote only
-        </label>
-      </div>
-
-      <p className="discMeta">
-        {disc.lastRefreshedAt ? `Last updated ${new Date(disc.lastRefreshedAt).toLocaleString()}` : "Not fetched yet."}
-        {jobs.length ? ` · ${jobs.length} matches` : ""}
-      </p>
-
-      <div className="jobList">
-        {jobs.length === 0 && (
-          <p className="emptyState">{disc.enabled ? "No matches yet — set your role and click “Refresh now”." : "Enable job fetching to see live matches."}</p>
-        )}
-        {jobs.map(job => {
-          const showJD = exp.id === job.id && exp.tab === "jd";
-          const showResume = exp.id === job.id && exp.tab === "resume";
-          return (
-            <div key={job.id} className="jobCard discoverCard">
-              <div className="jobCardTitleRow">
-                <h3>{job.title}</h3>
-                {typeof job.score === "number" && <span className={"scorePill " + scoreClass(job.score)}>{job.score}% match</span>}
-                <span className="sourceBadge">{job.source}</span>
-              </div>
-              <p className="jobRole">{job.company}</p>
-              <div className="jobMeta">
-                <span>📍 {job.location || "—"}</span>
-                <span>💼 {job.type || "—"}</span>
-                <span>💰 {job.pay || "—"}</span>
-                {job.datePosted && <span>🗓️ {job.datePosted}</span>}
-              </div>
-
-              <div className="jobCardActions">
-                <a className="btn ghost" href={job.url} target="_blank" rel="noreferrer">🔗 Open Posting</a>
-                <button className="btn" onClick={() => toggle(job.id, "jd")}>{showJD ? "Hide JD" : "📄 View JD"}</button>
-                <button className="btn" onClick={() => toggle(job.id, "resume")}>{showResume ? "Hide Resume" : "📝 Tailored Resume"}</button>
-                <button className="btn primary" onClick={() => onSave(job)}>➕ Save to My Jobs</button>
-              </div>
-
-              {showJD && (
-                <div className="jobDesc open"><div className="jobDescInner">
-                  <h4>Job Description</h4>
-                  <p>{job.description || "No description provided by the source."}</p>
-                </div></div>
-              )}
-              {showResume && (
-                <div className="jobDesc open"><div className="jobDescInner">
-                  <h4>Tailored ATS Resume</h4>
-                  <textarea className="resumeBox" readOnly value={job.resume || ""} />
-                  <div className="actions wrap">
-                    <button onClick={() => navigator.clipboard.writeText(job.resume || "")}>Copy</button>
-                    <button onClick={() => download(`${job.company}-${job.title}-resume.txt`, job.resume || "")}>Download TXT</button>
-                  </div>
-                </div></div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
+function scoreClass(s) { return s >= 75 ? "score-high" : s >= 50 ? "score-mid" : "score-low"; }
 
 function GoogleIcon() {
   return (
