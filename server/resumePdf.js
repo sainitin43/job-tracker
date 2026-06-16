@@ -40,9 +40,12 @@ export function streamStructuredResumePdf(res, r, downloadName) {
     doc.y = y + size * 1.16;
   }
 
+  const GX = 12; // hanging-indent: x offset of bullet text from left margin
   function bullet(text) {
+    const y = doc.y;
     doc.font("Times-Roman").fontSize(S.body).fillColor(BLACK);
-    doc.text("•  " + text, L, doc.y, { width: W, align: "justify", lineGap: 0.2, indent: 8, paragraphGap: 0.6 });
+    doc.text("•", L + 2, y, { lineBreak: false });
+    doc.text(text, L + GX, y, { width: W - GX, align: "justify", lineGap: 0.2, paragraphGap: 0.6 });
   }
 
   function labeled(label, value) {
@@ -64,8 +67,10 @@ export function streamStructuredResumePdf(res, r, downloadName) {
 
   section("Projects");
   r.projects.forEach(p => {
-    doc.font("Times-Bold").fontSize(S.body).fillColor(BLACK).text("•  " + p.title + ": ", L, doc.y, { continued: true, indent: 8 });
-    doc.font("Times-Roman").fontSize(S.body).text(p.text, { width: W, lineGap: 0.2, paragraphGap: 0.6 });
+    const y = doc.y;
+    doc.font("Times-Roman").fontSize(S.body).fillColor(BLACK).text("•", L + 2, y, { lineBreak: false });
+    doc.font("Times-Bold").fontSize(S.body).text(p.title + ": ", L + GX, y, { width: W - GX, continued: true });
+    doc.font("Times-Roman").fontSize(S.body).text(p.text, { align: "justify", lineGap: 0.2, paragraphGap: 0.6 });
   });
 
   section("Skills");
