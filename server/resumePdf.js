@@ -2,7 +2,7 @@
 import PDFDocument from "pdfkit";
 
 export function streamStructuredResumePdf(res, r, downloadName) {
-  const doc = new PDFDocument({ size: "LETTER", margins: { top: 22, bottom: 16, left: 42, right: 42 } });
+  const doc = new PDFDocument({ size: "LETTER", margins: { top: 24, bottom: 18, left: 44, right: 44 } });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
   doc.pipe(res);
@@ -13,7 +13,7 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   const BLACK = "#000000";
 
   // sizes tuned to fill one full page with this resume's volume
-  const S = { name: 13.5, contact: 8, hdr: 8.7, comp: 7.9, title: 7.5, body: 7.2, lead: 8.2 };
+  const S = { name: 13.8, contact: 8.1, hdr: 8.8, comp: 8, title: 7.6, body: 7.4, lead: 8.4 };
 
   const moveY = dy => { doc.y += dy; };
 
@@ -55,7 +55,7 @@ export function streamStructuredResumePdf(res, r, downloadName) {
     doc.font(font).fontSize(size).fillColor(BLACK);
     doc.text(rightText, L, y, { width: W, align: "right" });   // right first (sets line height)
     doc.text(leftText, L, y, { width: W * 0.72, align: "left", lineBreak: false });
-    doc.y = y + size * 1.05;
+    doc.y = y + size * 1.07;
   }
 
   const GX = 12; // hanging-indent: x offset of bullet text from left margin

@@ -3,7 +3,6 @@
 export const BASE_RESUME = {
   name: "SAI NITHIN P",
   contact: "Sunnyvale, CA | (804) 484-5154 | mailmenithin1317@gmail.com | linkedin.com/in/nithin-1317-p",
-  summary: "Software Engineer with 4+ years building and shipping production Android applications in Kotlin and Java for high-traffic, consumer-scale products. Deep expertise in modern Android architecture — Jetpack Compose, MVVM / MVI, ViewModel, Kotlin Coroutines, and StateFlow — with a strong record of lifecycle-safe, state-driven UI, REST and GraphQL integration, performance profiling, and automated testing. Backend experience spanning Spring Boot microservices, Apache Kafka, and Docker/Kubernetes CI/CD. Focused on reliable, maintainable, well-tested software that scales under real-world load.",
   experience: [
     {
       company: "WALMART",
