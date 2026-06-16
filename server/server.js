@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import dotenv from "dotenv";
-import db from "./db.js";
+import * as store from "./store.js";
 
 dotenv.config();
 
@@ -19,7 +19,6 @@ app.use(express.json({ limit: "12mb" })); // allow base64 resume files
 const now = () => new Date().toISOString();
 const today = () => now().slice(0, 10);
 
-/* ----------------------------- helpers ----------------------------- */
 function signToken(user) {
   return jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, { expiresIn: "30d" });
 }
@@ -32,7 +31,7 @@ function auth(req, res, next) {
   if (!token) return res.status(401).json({ error: "Missing token" });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.sub);
+    const user = store.getUserById(payload.sub);
     if (!user) return res.status(401).json({ error: "Invalid token" });
     req.user = user;
     next();
@@ -70,8 +69,7 @@ app.post("/api/auth/signup", (req, res) => {
   if (!password || password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
 
   const mail = email.trim().toLowerCase();
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(mail);
-  if (existing) return res.status(409).json({ error: "An account with this email already exists" });
+  if (store.getUserByEmail(mail)) return res.status(409).json({ error: "An account with this email already exists" });
 
   const user = {
     id: crypto.randomUUID(),
@@ -81,21 +79,48 @@ app.post("/api/auth/signup", (req, res) => {
     provider: "local",
     created_at: now()
   };
-  db.prepare(
-    "INSERT INTO users (id, email, first_name, password, provider, created_at) VALUES (@id,@email,@first_name,@password,@provider,@created_at)"
-  ).run(user);
-
+  store.addUser(user);
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
 app.post("/api/auth/login", (req, res) => {
   const { email, password } = req.body || {};
   if (!isEmail(email) || !password) return res.status(400).json({ error: "Email and password are required" });
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email.trim().toLowerCase());
+  const user = store.getUserByEmail(email.trim().toLowerCase());
   if (!user || !user.password || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ error: "Invalid email or password" });
   }
   res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+app.post("/api/auth/google", async (req, res) => {
+  const { credential } = req.body || {};
+  if (!credential) return res.status(400).json({ error: "Missing Google credential" });
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(credential));
+    if (!r.ok) return res.status(401).json({ error: "Invalid Google token" });
+    const info = await r.json();
+    if (process.env.GOOGLE_CLIENT_ID && info.aud !== process.env.GOOGLE_CLIENT_ID) {
+      return res.status(401).json({ error: "Google token audience mismatch" });
+    }
+    const mail = (info.email || "").toLowerCase();
+    if (!mail) return res.status(401).json({ error: "No email in Google token" });
+    let user = store.getUserByEmail(mail);
+    if (!user) {
+      user = {
+        id: crypto.randomUUID(),
+        email: mail,
+        first_name: info.given_name || (info.name || mail).split(" ")[0] || mail,
+        password: null,
+        provider: "google",
+        created_at: now()
+      };
+      store.addUser(user);
+    }
+    res.json({ token: signToken(user), user: publicUser(user) });
+  } catch {
+    res.status(500).json({ error: "Google verification failed" });
+  }
 });
 
 app.get("/api/auth/me", auth, (req, res) => {
@@ -104,8 +129,7 @@ app.get("/api/auth/me", auth, (req, res) => {
 
 /* ------------------------------ jobs ------------------------------- */
 app.get("/api/jobs", auth, (req, res) => {
-  const rows = db.prepare("SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC").all(req.user.id);
-  res.json({ jobs: rows.map(rowToJob) });
+  res.json({ jobs: store.getJobsByUser(req.user.id).map(rowToJob) });
 });
 
 app.post("/api/jobs", auth, (req, res) => {
@@ -132,19 +156,15 @@ app.post("/api/jobs", auth, (req, res) => {
     resume_type: b.resumeFileType || "",
     created_at: now()
   };
-  db.prepare(`INSERT INTO jobs
-    (id,user_id,company,title,url,location,type,pay,status,date_added,date_applied,description,resume,resume_file,resume_name,resume_type,created_at)
-    VALUES (@id,@user_id,@company,@title,@url,@location,@type,@pay,@status,@date_added,@date_applied,@description,@resume,@resume_file,@resume_name,@resume_type,@created_at)`
-  ).run(job);
+  store.addJob(job);
   res.status(201).json({ job: rowToJob(job) });
 });
 
 app.put("/api/jobs/:id", auth, (req, res) => {
-  const existing = db.prepare("SELECT * FROM jobs WHERE id = ? AND user_id = ?").get(req.params.id, req.user.id);
+  const existing = store.getJob(req.params.id, req.user.id);
   if (!existing) return res.status(404).json({ error: "Job not found" });
   const b = req.body || {};
-  const merged = {
-    ...existing,
+  const patch = {
     company: b.company ?? existing.company,
     title: b.title ?? existing.title,
     url: b.url ?? existing.url,
@@ -159,18 +179,13 @@ app.put("/api/jobs/:id", auth, (req, res) => {
     resume_name: b.resumeFileName ?? existing.resume_name,
     resume_type: b.resumeFileType ?? existing.resume_type
   };
-  db.prepare(`UPDATE jobs SET
-    company=@company,title=@title,url=@url,location=@location,type=@type,pay=@pay,status=@status,
-    date_applied=@date_applied,description=@description,resume=@resume,resume_file=@resume_file,
-    resume_name=@resume_name,resume_type=@resume_type
-    WHERE id=@id AND user_id=@user_id`
-  ).run(merged);
-  res.json({ job: rowToJob(merged) });
+  const updated = store.updateJob(req.params.id, req.user.id, patch);
+  res.json({ job: rowToJob(updated) });
 });
 
 app.delete("/api/jobs/:id", auth, (req, res) => {
-  const info = db.prepare("DELETE FROM jobs WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Job not found" });
+  const ok = store.deleteJob(req.params.id, req.user.id);
+  if (!ok) return res.status(404).json({ error: "Job not found" });
   res.json({ ok: true });
 });
 
