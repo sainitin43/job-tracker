@@ -18,6 +18,20 @@ const STATUSES = ["Not Applied", "Applied", "Interviewing", "Rejected", "Offer"]
 const STATUS_FILTERS = ["All", ...STATUSES];
 const statusSlug = s => (s || "").toLowerCase().replace(/\s+/g, "-");
 
+// Tech stacks for the filter. A job "matches" a tech if its text contains it.
+const TECH_STACKS = [
+  "Java", "Kotlin", "Android", "Jetpack Compose", "Swift", "iOS",
+  "JavaScript", "TypeScript", "React", "Node", "Python", "Go", "C++", "C#",
+  "Spring Boot", "GraphQL", "REST", "SQL", "PostgreSQL", "MongoDB",
+  "AWS", "GCP", "Docker", "Kubernetes", "Kafka", "Redis", "CI/CD"
+];
+function jobMatchesTech(job, techs) {
+  if (!techs.length) return true;
+  const hay = `${job.title} ${job.description} ${job.company} ${job.pay}`.toLowerCase();
+  // match if the job contains ANY of the selected techs
+  return techs.some(t => hay.includes(t.toLowerCase()));
+}
+
 const blankJob = {
   company: "", title: "", url: "", location: "", type: "Full-time", pay: "",
   status: "Applied", dateApplied: "", description: "",
@@ -192,9 +206,14 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [techFilter, setTechFilter] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  function toggleTech(t) {
+    setTechFilter(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]));
+  }
 
   const call = useCallback((path, opts = {}) => api(path, { ...opts, token }).catch(err => {
     if (/401|token/i.test(err.message)) onAuthExpired();
@@ -226,9 +245,10 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
         j.title.toLowerCase().includes(q) ||
         j.status.toLowerCase().includes(q) ||
         (j.description || "").toLowerCase().includes(q);
-      return (statusFilter === "All" || j.status === statusFilter) && textMatch;
+      const statusOk = statusFilter === "All" || j.status === statusFilter;
+      return statusOk && textMatch && jobMatchesTech(j, techFilter);
     });
-  }, [jobs, search, statusFilter]);
+  }, [jobs, search, statusFilter, techFilter]);
 
   const stats = {
     total: jobs.length,
@@ -340,6 +360,34 @@ ${draft.description || "Paste the job description to customize keywords."}`;
         </div>
       </header>
 
+      <section className="searchHero">
+        <div className="searchBarWrap">
+          <span className="searchIcon">🔍</span>
+          <input
+            className="searchBar"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search your jobs — try “Java”, “Software Engineer”, a company…"
+          />
+          {search && <button className="clearSearch" onClick={() => setSearch("")} aria-label="Clear">×</button>}
+        </div>
+        <div className="techChips">
+          <span className="techChipsLabel">Tech stack:</span>
+          {TECH_STACKS.map(t => (
+            <button
+              key={t}
+              className={"techChip" + (techFilter.includes(t) ? " on" : "")}
+              onClick={() => toggleTech(t)}
+            >
+              {t}
+            </button>
+          ))}
+          {techFilter.length > 0 && (
+            <button className="techChip clear" onClick={() => setTechFilter([])}>Clear ×</button>
+          )}
+        </div>
+      </section>
+
       <section className="layout">
         <div className="left">
           <div className="stats">
@@ -359,10 +407,12 @@ ${draft.description || "Paste the job description to customize keywords."}`;
             </div>
 
             <div className="filters">
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search company, title, status, or description..." />
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 {STATUS_FILTERS.map(s => <option key={s}>{s}</option>)}
               </select>
+              {(search || techFilter.length > 0) && (
+                <span className="resultCount">{filtered.length} of {jobs.length} shown</span>
+              )}
             </div>
 
             <div className="jobList">
