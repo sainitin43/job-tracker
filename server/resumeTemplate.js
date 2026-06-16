@@ -3,6 +3,7 @@
 export const BASE_RESUME = {
   name: "SAI NITHIN P",
   contact: "Sunnyvale, CA | (804) 484-5154 | mailmenithin1317@gmail.com | linkedin.com/in/nithin-1317-p",
+  summary: "Software Engineer with 4+ years building and shipping production Android applications in Kotlin and Java for high-traffic, consumer-scale products. Deep expertise in modern Android architecture — Jetpack Compose, MVVM / MVI, ViewModel, Kotlin Coroutines, and StateFlow — with a strong record of lifecycle-safe, state-driven UI, REST and GraphQL integration, performance profiling, and automated testing. Backend experience spanning Spring Boot microservices, Apache Kafka, and Docker/Kubernetes CI/CD. Focused on reliable, maintainable, well-tested software that scales under real-world load.",
   experience: [
     {
       company: "WALMART",
@@ -17,7 +18,9 @@ export const BASE_RESUME = {
         "Built Android components with ExoPlayer in Kotlin, managing adaptive bitrate, buffering, audio focus, and lifecycle-bound cleanup, lowering buffering delays and improving playback stability.",
         "Applied structured concurrency with Kotlin Coroutines and StateFlow to coordinate asynchronous cart, pricing, and payment updates, preventing race conditions and inconsistent UI state.",
         "Profiled cart and checkout using the Android Studio Profiler and memory analysis to diagnose jank, cut dropped frames, and improve UI responsiveness on low-memory devices.",
-        "Wrote ViewModel and UI tests in Kotlin for cart and checkout flows, covering state transitions and lifecycle edge cases, increasing coverage and catching bugs before release."
+        "Developed reusable Jetpack Compose UI components and a shared design-system layer, standardizing styling, accessibility semantics, and state hoisting across cart and checkout screens to accelerate feature delivery and reduce duplication.",
+        "Structured feature modules with Hilt dependency injection and a clean data–domain–presentation separation, isolating business logic behind use cases to keep the codebase testable, decoupled, and straightforward to evolve.",
+        "Wrote ViewModel and UI tests in Kotlin for cart and checkout flows, covering state transitions and lifecycle edge cases, increasing coverage and catching regressions before they reached production."
       ]
     },
     {
@@ -32,7 +35,9 @@ export const BASE_RESUME = {
         "Integrated REST backend APIs for prescription eligibility, pricing, insurance validation, and order confirmation, validating response schemas and error contracts to prevent client-side corruption under latency or partial failures.",
         "Implemented Android authentication flows using OAuth 2.0 and JWT, storing tokens in EncryptedSharedPreferences and handling refresh and expiration, keeping user sessions secure across prescription and order workflows.",
         "Structured prescription and order features into clean data, domain, and presentation layers with dependency injection, improving testability and reducing coupling across flows.",
-        "Optimized RecyclerView and screen rendering for prescription lists and order summaries by stabilizing item IDs and minimizing layout invalidations, delivering smoother scrolling and faster UI response."
+        "Implemented offline-first caching with Room and DataStore so refill and order screens stayed responsive and consistent during intermittent connectivity, reconciling local and server state safely on reconnect.",
+        "Optimized RecyclerView and screen rendering for prescription lists and order summaries by stabilizing item IDs and minimizing layout invalidations, delivering smoother scrolling and faster UI response.",
+        "Wrote Espresso and JUnit instrumentation tests for refill and checkout flows and wired them into the CI gate, catching regressions early and keeping the release pipeline green."
       ]
     },
     {
@@ -45,8 +50,9 @@ export const BASE_RESUME = {
         "Designed and implemented a continuous-integration pipeline using Maven and Jenkins, improving software quality and consistency.",
         "Deployed Java microservices in Docker containers orchestrated by Kubernetes for faster rollout and higher availability, automating build, test, and delivery via Maven and Jenkins.",
         "Integrated Apache Kafka for event-driven architectures, enabling real-time data streaming across microservices and supporting RTSP and WebRTC video-streaming use cases.",
-        "Designed RESTful Spring Boot microservice APIs with input validation, pagination, and centralized exception handling for reliable, well-documented service contracts.",
-        "Analyzed database performance and implemented indexing strategies to optimize query response times, reducing database latency by 20%."
+        "Designed RESTful Spring Boot microservice APIs with request validation, pagination, idempotency keys, and centralized exception handling, producing reliable, versioned, well-documented service contracts consumed across multiple internal teams.",
+        "Hardened services with structured logging, health checks, and metrics instrumentation, improving observability and shortening incident diagnosis during production support rotations.",
+        "Analyzed database performance and implemented indexing and query-tuning strategies to optimize response times, reducing database latency by 20% under peak load."
       ]
     }
   ],
@@ -70,6 +76,7 @@ export const BASE_RESUME = {
 // Flatten the structured resume into plain text (for copy / TXT / on-screen view).
 export function resumeToText(r) {
   const out = [r.name, r.contact, ""];
+  if (r.summary) { out.push("PROFESSIONAL SUMMARY"); out.push(r.summary); out.push(""); }
   out.push("PROFESSIONAL EXPERIENCE");
   for (const e of r.experience) {
     out.push(`${e.company}  |  ${e.location}`);
