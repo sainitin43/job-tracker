@@ -8,7 +8,7 @@ export const BASE_RESUME = {
       company: "WALMART",
       location: "Sunnyvale, CA",
       title: "Software Engineer III",
-      dates: "Aug 2024 - Feb 2026",
+      dates: "Aug 2024 - Present",
       bullets: [
         "Owned Android Cart and Checkout on high-traffic purchase paths serving millions of daily users, modeling lifecycle-safe UI state that survives process death, configuration changes, and low-memory conditions, eliminating ~90% of cart and payment state-corruption defects.",
         "Re-architected checkout with state-driven MVVM and explicit UI state machines, preventing duplicate charges and lost-cart data and cutting lifecycle-related crashes by 40%.",

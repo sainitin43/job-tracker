@@ -103,15 +103,16 @@ ${JSON.stringify(experience)}`;
 // are kept from the saved resume when present.
 export function normalizeResume(rd) {
   if (!rd || !Array.isArray(rd.experience)) return rd || BASE_RESUME;
-  const needsRepair = rd.experience.some(e => !e || !e.company || !e.title);
-  if (!needsRepair) return rd;
+  // Structural fields (company/location/title/dates) are always taken from the
+  // canonical BASE_RESUME by index, so corrections like employment dates apply
+  // everywhere. Only the tailored bullets are carried over from the saved resume.
   const experience = BASE_RESUME.experience.map((b, i) => {
     const s = rd.experience[i] || {};
     return {
-      company: s.company || b.company,
-      location: s.location || b.location,
-      title: s.title || b.title,
-      dates: s.dates || b.dates,
+      company: b.company,
+      location: b.location,
+      title: b.title,
+      dates: b.dates,
       bullets: (Array.isArray(s.bullets) && s.bullets.length ? s.bullets : b.bullets).map(String)
     };
   });
