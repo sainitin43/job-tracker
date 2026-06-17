@@ -155,8 +155,28 @@ export async function buildTailoredResume(job, profile, match) {
   return { struct, text: resumeToText(struct) };
 }
 
+// Keywords this specific JD cares about (from the ATS dictionary).
+function jdKeywords(job) {
+  const text = `${job.title || ""} ${job.description || ""}`.toLowerCase();
+  return ATS_KEYWORDS.filter(k => text.includes(k.toLowerCase()));
+}
+// No-LLM tailoring: reorder each role's bullets so the ones matching THIS job's
+// keywords surface first. Honest (no fabrication) and genuinely different per job.
+function heuristicTailor(experience, job) {
+  const kws = jdKeywords(job);
+  if (!kws.length) return experience;
+  const score = b => kws.reduce((n, k) => n + (b.toLowerCase().includes(k.toLowerCase()) ? 1 : 0), 0);
+  return experience.map(e => ({
+    ...e,
+    bullets: e.bullets
+      .map((b, i) => ({ b, i, s: score(b) }))
+      .sort((a, z) => z.s - a.s || a.i - z.i)   // most-relevant first, stable otherwise
+      .map(x => x.b)
+  }));
+}
+
 async function tailorExperience(job, match) {
-  if (!process.env.ANTHROPIC_API_KEY) return BASE_RESUME.experience;
+  if (!process.env.ANTHROPIC_API_KEY) return heuristicTailor(BASE_RESUME.experience, job);
   try {
     const prompt =
 `Tailor ONLY the bullet points of each experience entry to the target job below, to maximize ATS keyword match. Rules:
@@ -193,8 +213,8 @@ ${JSON.stringify(BASE_RESUME.experience)}`;
       bullets: (parsed[i] && parsed[i].bullets && parsed[i].bullets.length ? parsed[i].bullets : base.bullets).map(String)
     }));
   } catch (e) {
-    console.error("[tailor] experience LLM failed, using base bullets:", e.message);
-    return BASE_RESUME.experience;
+    console.error("[tailor] experience LLM failed, using heuristic reorder:", e.message);
+    return heuristicTailor(BASE_RESUME.experience, job);
   }
 }
 
