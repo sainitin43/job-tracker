@@ -24,6 +24,120 @@ export function atsScore(jobText, resumeText) {
   return { score: Math.round((matched.length / asked.length) * 100), matched, missing };
 }
 
+// ---- ATS gap analysis + fixer ------------------------------------------
+function jobText(job) { return `${job.title || ""} ${job.description || ""}`; }
+
+// What keywords the JD asks for that the resume is missing / already has.
+export function analyzeGap(job, resumeText) {
+  const r = atsScore(jobText(job), resumeText || "");
+  return { ats: r.score, present: r.matched, missing: r.missing };
+}
+
+// Map each ATS keyword to the best-fitting skills line label.
+const SKILL_BUCKETS = [
+  { label: "Programming Languages", kws: ["Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go", "C++", "C#", "Swift"] },
+  { label: "Android & Jetpack", kws: ["Android", "iOS", "Jetpack Compose", "MVVM", "MVI", "Coroutines", "Flow", "RxJava", "Retrofit", "OkHttp", "Hilt", "Dagger", "Room", "CameraX", "ML Kit", "MediaPipe", "Kotlin Multiplatform", "Compose Multiplatform"] },
+  { label: "Full Stack & Web", kws: ["React", "Redux", "Angular", "Vue", "Node.js", "Spring Boot", "Express", "GraphQL", "REST", "WebSocket", "gRPC"] },
+  { label: "Testing & Performance", kws: ["JUnit", "Espresso", "Mockito", "Jest", "Cypress", "Playwright", "Selenium"] },
+  { label: "Security & Auth", kws: ["OAuth", "JWT"] },
+  { label: "Cloud & DevOps", kws: ["AWS", "GCP", "Azure", "Docker", "Kubernetes", "Terraform", "CI/CD", "Jenkins", "Maven", "Gradle", "Git", "Microservices", "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis", "Kafka", "RabbitMQ", "Agile", "Scrum"] },
+  { label: "AI & ML", kws: ["TensorFlow", "PyTorch", "Machine Learning", "LLM", "GenAI"] }
+];
+
+// Add missing keywords into the matching skills line (deterministic ATS win).
+function injectSkills(skills, missing) {
+  const next = (skills || []).map(s => ({ ...s }));
+  const findLine = label => next.find(s => (s.label || "").toLowerCase() === label.toLowerCase());
+  const leftovers = [];
+  for (const kw of missing) {
+    const bucket = SKILL_BUCKETS.find(b => b.kws.some(k => k.toLowerCase() === kw.toLowerCase()));
+    let line = bucket ? findLine(bucket.label) : null;
+    if (!line && bucket) { line = { label: bucket.label, value: "" }; next.push(line); }
+    if (line) {
+      if (!line.value.toLowerCase().includes(kw.toLowerCase())) line.value = line.value ? `${line.value}, ${kw}` : kw;
+    } else leftovers.push(kw);
+  }
+  if (leftovers.length) {
+    let extra = findLine("Additional Tools");
+    if (!extra) { extra = { label: "Additional Tools", value: "" }; next.push(extra); }
+    for (const kw of leftovers) if (!extra.value.toLowerCase().includes(kw.toLowerCase())) extra.value = extra.value ? `${extra.value}, ${kw}` : kw;
+  }
+  return next;
+}
+
+// LLM bullet-weave: rewrite experience bullets to truthfully incorporate the
+// specific missing keywords where they genuinely fit. Falls back to heuristic.
+async function weaveKeywords(experience, job, missing) {
+  const prompt =
+`Rewrite ONLY the bullet points of each experience entry so they truthfully incorporate as many of these MISSING ATS keywords as genuinely fit the candidate's existing work: ${missing.join(", ")}.
+Rules:
+- Keep the SAME company, location, title, dates, and the SAME number of bullets per entry.
+- Stay 100% truthful: only re-word/re-emphasize the candidate's existing facts and technologies. Do NOT invent employers, tools, or experience that isn't already implied.
+- Only add a keyword to a bullet where it is plausibly part of that work; never force-fit.
+Return ONLY a JSON array: [{"company":"","location":"","title":"","dates":"","bullets":["",...]}]
+
+TARGET JOB: ${job.title} @ ${job.company}
+JOB DESCRIPTION:
+${(job.description || "").slice(0, 4000)}
+
+CURRENT EXPERIENCE (JSON):
+${JSON.stringify(experience)}`;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest", max_tokens: 3000, messages: [{ role: "user", content: prompt }] })
+  });
+  if (!res.ok) throw new Error("Anthropic " + res.status + ": " + (await res.text()).slice(0, 140));
+  const data = await res.json();
+  let text = (data.content || []).map(c => c.text || "").join("").trim();
+  const a = text.indexOf("["), b = text.lastIndexOf("]");
+  if (a !== -1 && b !== -1) text = text.slice(a, b + 1);
+  const parsed = JSON.parse(text);
+  if (!Array.isArray(parsed) || !parsed.length || !parsed.every(e => Array.isArray(e.bullets) && e.bullets.length)) throw new Error("bad LLM shape");
+  return experience.map((base, i) => ({ ...base, bullets: (parsed[i]?.bullets?.length ? parsed[i].bullets : base.bullets).map(String) }));
+}
+
+// Repair a possibly-malformed saved resume: guarantee each experience entry
+// has company/location/title/dates (some older tailoring runs dropped them).
+// Structural fields come from BASE_RESUME (by index); bullets/skills/contact
+// are kept from the saved resume when present.
+export function normalizeResume(rd) {
+  if (!rd || !Array.isArray(rd.experience)) return rd || BASE_RESUME;
+  const needsRepair = rd.experience.some(e => !e || !e.company || !e.title);
+  if (!needsRepair) return rd;
+  const experience = BASE_RESUME.experience.map((b, i) => {
+    const s = rd.experience[i] || {};
+    return {
+      company: s.company || b.company,
+      location: s.location || b.location,
+      title: s.title || b.title,
+      dates: s.dates || b.dates,
+      bullets: (Array.isArray(s.bullets) && s.bullets.length ? s.bullets : b.bullets).map(String)
+    };
+  });
+  return { ...BASE_RESUME, ...rd, experience };
+}
+
+// Fill ATS gaps: weave missing keywords into the resume (LLM if available,
+// else deterministic skills-injection + relevance reorder), then re-score.
+// Does NOT persist — client previews and confirms.
+export async function fillGap(job, resumeData) {
+  const base = normalizeResume(resumeData || BASE_RESUME);
+  const before = atsScore(jobText(job), resumeToText(base)).score;
+  const { missing } = analyzeGap(job, resumeToText(base));
+  let experience = heuristicTailor(base.experience, job);
+  let llm = false;
+  if (process.env.ANTHROPIC_API_KEY && missing.length) {
+    try { experience = await weaveKeywords(base.experience, job, missing); llm = true; }
+    catch (e) { console.error("[gapfix] LLM weave failed, using heuristic:", e.message); experience = heuristicTailor(base.experience, job); }
+  }
+  const skills = injectSkills(base.skills, missing);
+  const struct = { ...base, experience, skills };
+  const text = resumeToText(struct);
+  const after = atsScore(jobText(job), text);
+  return { struct, text, before, ats: after.score, present: after.matched, missingRemaining: after.missing, llm };
+}
+
 // ---- Cold outreach to recruiters ---------------------------------------
 function firstName(name) { return (name || "there").trim().split(/\s+/)[0]; }
 function topSkills(profile, n = 4) {

@@ -167,6 +167,11 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   const [retailorResult, setRetailorResult] = useState(null);
   const [retailorBusy, setRetailorBusy] = useState(false);
 
+  const [gapJob, setGapJob] = useState(null);
+  const [gapData, setGapData] = useState(null);     // { ats, present[], missing[] }
+  const [gapFix, setGapFix] = useState(null);        // { resume, resumeData, before, ats, missingRemaining[], llm }
+  const [gapBusy, setGapBusy] = useState(false);     // fixing in progress
+
   const [rec, setRec] = useState(null);          // { enabled, prefs, posts, lastRefreshedAt }
   const [recLoading, setRecLoading] = useState(false);
   const [recRefreshing, setRecRefreshing] = useState(false);
@@ -348,6 +353,33 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   }
   function discardRetailor() { setRetailorJob(null); setRetailorResult(null); }
 
+  async function openGap(job) {
+    setGapJob(job); setGapData(null); setGapFix(null); setGapBusy(false);
+    try {
+      const g = await call(`/jobs/${job.id}/atsgap`, { method: "POST" });
+      setGapData(g);
+    } catch (e) { alert(e.message); setGapJob(null); }
+  }
+  async function fixGap() {
+    if (!gapJob) return;
+    setGapBusy(true);
+    try {
+      const r = await call(`/jobs/${gapJob.id}/atsfix`, { method: "POST" });
+      setGapFix(r);
+    } catch (e) { alert(e.message); }
+    finally { setGapBusy(false); }
+  }
+  async function applyGapFix() {
+    if (!gapJob || !gapFix) return;
+    const id = gapJob.id;
+    try {
+      const { job } = await call(`/jobs/${id}`, { method: "PUT", body: { resume: gapFix.resume, resumeData: gapFix.resumeData, ats: gapFix.ats } });
+      setJobs(prev => prev.map(j => (j.id === id ? job : j)));
+    } catch (e) { alert(e.message); }
+    setGapJob(null); setGapData(null); setGapFix(null);
+  }
+  function closeGap() { setGapJob(null); setGapData(null); setGapFix(null); setGapBusy(false); }
+
   function exportData() { download(`${user.firstName}-jobs.json`, JSON.stringify(jobs, null, 2), "application/json"); }
   function downloadResume(job) { if (!job?.resume) return; download(`${job.company}-${job.title}-resume.txt`, job.resume); }
   async function downloadResumePdf(job) {
@@ -473,6 +505,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                       <button className="btn" onClick={() => downloadResumePdf(job)}>⬇️ Resume PDF</button>
                       <button className="btn" onClick={() => toggleExpand(job.id, "resume")} disabled={!job.resume}>{showResume ? "Hide Resume" : "📝 Tailored Resume"}</button>
                       <button className="btn" onClick={() => reTailor(job)}>♻️ Re-tailor</button>
+                      <button className="btn" onClick={() => openGap(job)}>🎯 ATS Gaps</button>
                       <button className="btn" onClick={() => toggleExpand(job.id, "jd")}>{showJD ? "Hide JD" : "📄 View JD"}</button>
                       <button className="btn" onClick={() => editJob(job)}>✏️ Edit</button>
                       <button className="btn danger" onClick={() => deleteJob(job.id)}>🗑️ Delete</button>
@@ -584,6 +617,80 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
               <button onClick={() => confirmApplied(applyJob, false)}>Not yet</button>
               <button className="primary" onClick={() => confirmApplied(applyJob, true)}>✅ Yes, mark Applied</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {gapJob && (
+        <div className="modalOverlay" onClick={closeGap}>
+          <div className="modalCard" onClick={e => e.stopPropagation()}>
+            <div className="modalHead">
+              <div>
+                <p className="eyebrow">ATS gap analysis</p>
+                <h2>{gapJob.company} — {gapJob.title}</h2>
+              </div>
+              <button className="closeBtn" onClick={closeGap} aria-label="Close">×</button>
+            </div>
+
+            {!gapData && <p className="emptyState">Scanning the job description against your resume…</p>}
+
+            {gapData && !gapFix && (
+              <>
+                <p className="applyQ">
+                  Current ATS match: <strong className={scoreClass(gapData.ats || 0)}>{gapData.ats == null ? "—" : gapData.ats + "%"}</strong>
+                  {"  "}<span className="findHint">· {gapData.present.length} present · {gapData.missing.length} missing</span>
+                </p>
+                {gapData.missing.length > 0 ? (
+                  <>
+                    <p className="gapLabel">Missing keywords from this job description:</p>
+                    <div className="gapChips">
+                      {gapData.missing.map(k => <span key={k} className="gapChip missing">{k}</span>)}
+                    </div>
+                    {gapData.present.length > 0 && (
+                      <>
+                        <p className="gapLabel">Already covered:</p>
+                        <div className="gapChips">
+                          {gapData.present.map(k => <span key={k} className="gapChip present">{k}</span>)}
+                        </div>
+                      </>
+                    )}
+                    <div className="modalActions">
+                      <button onClick={closeGap}>Close</button>
+                      <button className="primary" onClick={fixGap} disabled={gapBusy}>
+                        {gapBusy ? "Optimizing…" : "⚡ Fix to 90%+"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="applyQ">🎉 No gaps — your resume already covers every keyword this job asks for.</p>
+                    <div className="modalActions"><button className="primary" onClick={closeGap}>Great</button></div>
+                  </>
+                )}
+              </>
+            )}
+
+            {gapFix && (
+              <>
+                <p className="applyQ">
+                  ATS match: <strong className={scoreClass(gapFix.before || 0)}>{gapFix.before}%</strong>
+                  {"  →  "}
+                  <strong className={scoreClass(gapFix.ats || 0)}>{gapFix.ats}%</strong>
+                  {gapFix.llm === false && <span className="findHint"> · keywords woven into your skills; add Anthropic credits for a full bullet rewrite</span>}
+                </p>
+                {gapFix.missingRemaining.length > 0 && (
+                  <div className="gapChips">
+                    {gapFix.missingRemaining.map(k => <span key={k} className="gapChip missing">{k}</span>)}
+                  </div>
+                )}
+                <textarea className="resumeBox" readOnly value={gapFix.resume} />
+                <p className="applyQ">Update this job's resume with the gap-fixed version?</p>
+                <div className="modalActions">
+                  <button onClick={closeGap}>No, keep current</button>
+                  <button className="primary" onClick={applyGapFix}>Yes, update resume</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -6,7 +6,7 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 import * as store from "./store.js";
 import * as discover from "./discover.js";
-import { scoreMatch, buildTailoredResume, atsScore, coldOutreach } from "./tailor.js";
+import { scoreMatch, buildTailoredResume, atsScore, coldOutreach, analyzeGap, fillGap, normalizeResume } from "./tailor.js";
 import { streamStructuredResumePdf } from "./resumePdf.js";
 import { BASE_RESUME, resumeToText } from "./resumeTemplate.js";
 import * as recruiters from "./recruiters.js";
@@ -47,6 +47,14 @@ function auth(req, res, next) {
 const isEmail = e => typeof e === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
 function rowToJob(r) {
+  // Single source of truth: when a structured resume exists, the on-screen
+  // text, the PDF, and the ATS score all derive from the same normalized
+  // struct, so they can never disagree.
+  const normalized = r.resume_data ? normalizeResume(r.resume_data) : null;
+  const resumeText = normalized ? resumeToText(normalized) : (r.resume || "");
+  const ats = normalized
+    ? atsScore(`${r.description || ""} ${r.title || ""}`, resumeText).score
+    : (typeof r.ats === "number" ? r.ats : null);
   return {
     id: r.id,
     company: r.company,
@@ -59,14 +67,14 @@ function rowToJob(r) {
     dateAdded: r.date_added || "",
     dateApplied: r.date_applied || "",
     description: r.description || "",
-    resume: r.resume || "",
-    resumeData: r.resume_data || null,
+    resume: resumeText,
+    resumeData: normalized,
     resumeFile: r.resume_file || null,
     resumeFileName: r.resume_name || "",
     resumeFileType: r.resume_type || "",
     favourite: !!r.favourite,
     score: typeof r.score === "number" ? r.score : null,
-    ats: typeof r.ats === "number" ? r.ats : null,
+    ats,
     source: r.source || "",
     datePosted: r.date_posted || ""
   };
@@ -232,12 +240,36 @@ app.post("/api/jobs/:id/retailor", auth, async (req, res) => {
   }
 });
 
+// ATS gap analysis: which JD keywords the current resume is missing / has.
+app.post("/api/jobs/:id/atsgap", auth, (req, res) => {
+  const job = store.getJob(req.params.id, req.user.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const jobLike = { title: job.title, company: job.company, description: job.description || "" };
+  const resumeText = resumeToText(normalizeResume(job.resume_data || BASE_RESUME));
+  const gap = analyzeGap(jobLike, resumeText);
+  res.json(gap); // { ats, present, missing }
+});
+
+// Fix ATS gaps: weave the missing keywords in and re-score (WITHOUT saving).
+// Client previews before/after and confirms via PUT to persist.
+app.post("/api/jobs/:id/atsfix", auth, async (req, res) => {
+  const job = store.getJob(req.params.id, req.user.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const jobLike = { title: job.title, company: job.company, description: job.description || "" };
+  try {
+    const r = await fillGap(jobLike, job.resume_data || BASE_RESUME);
+    res.json({ resume: r.text, resumeData: r.struct, before: r.before, ats: r.ats, missingRemaining: r.missingRemaining, llm: r.llm });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // Download the tailored resume as a formatted PDF (always in the base layout)
 app.get("/api/jobs/:id/resume.pdf", auth, (req, res) => {
   const job = store.getJob(req.params.id, req.user.id);
   if (!job) return res.status(404).json({ error: "Job not found" });
   const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
-  const resume = job.resume_data || BASE_RESUME; // structured tailored, else base template
+  const resume = normalizeResume(job.resume_data || BASE_RESUME); // structured tailored, else base template
   streamStructuredResumePdf(res, resume, `${safe(job.company)}-${safe(job.title)}-resume.pdf`);
 });
 
