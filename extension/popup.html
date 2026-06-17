@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">JOB TRACKER · AUTO-APPLIER</div>
+
+    <div id="loggedOut" class="hidden">
+      <h1>Sign in</h1>
+      <input id="email" type="email" placeholder="Email" autocomplete="username" />
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+      <button id="loginBtn" class="primary">Log in</button>
+      <p id="err" class="err"></p>
+      <p class="hint">Uses your Job Tracker account. The dashboard backend must be running.</p>
+    </div>
+
+    <div id="loggedIn" class="hidden">
+      <p class="who">Signed in as <strong id="whoEmail"></strong></p>
+      <p class="hint">Open a job posting on LinkedIn, Greenhouse, Lever, or Workday. A panel appears bottom-right to save, tailor, and autofill.</p>
+      <button id="dashBtn">Open dashboard</button>
+      <button id="logoutBtn" class="ghost">Log out</button>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

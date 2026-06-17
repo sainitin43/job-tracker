@@ -19,7 +19,15 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-only-insecure-secret-change-me
 const ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 
 const app = express();
-app.use(cors({ origin: ORIGIN, credentials: true }));
+// Allow the web app origin and the Chrome extension (chrome-extension://<id>).
+app.use(cors({
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);                       // curl / same-origin / service worker
+    if (origin === ORIGIN || /^chrome-extension:\/\//.test(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: "12mb" })); // allow base64 resume files
 
 const now = () => new Date().toISOString();
@@ -316,6 +324,56 @@ app.get("/api/jobs/:id/applykit.zip", auth, async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+/* ----------------------- applicant autofill ----------------------- */
+// Best-known autofill fields derived from the user + their base resume.
+function defaultApplicant(user) {
+  const c = BASE_RESUME.contact || "";
+  const phone = (c.match(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/) || [])[0] || "";
+  const linkedin = (c.match(/linkedin\.com\/\S+/i) || [])[0] || "";
+  const emailFromResume = (c.match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0] || "";
+  const loc = (c.split("|")[0] || "").trim();
+  const [city = "", state = ""] = loc.split(",").map(s => s.trim());
+  const fullName = user.name || BASE_RESUME.name || user.first_name || "";
+  const tokens = fullName.split(/\s+/).filter(Boolean);
+  const firstName = user.first_name || tokens[0] || "";
+  const lastName = tokens.length > 1 ? tokens[tokens.length - 1] : "";
+  const recent = BASE_RESUME.experience[0] || {};
+  return {
+    firstName, lastName, fullName,
+    email: user.email || emailFromResume,
+    phone,
+    linkedin: linkedin ? (linkedin.startsWith("http") ? linkedin : "https://" + linkedin) : "",
+    github: "", website: "",
+    address: "", city, state, country: "United States", zip: "",
+    location: loc,
+    currentCompany: recent.company || "",
+    currentTitle: recent.title || "",
+    yearsExperience: "5",
+    workAuthorized: "Yes",
+    requiresSponsorship: "No",
+    willingToRelocate: "Yes",
+    noticePeriod: "2 weeks",
+    salaryExpectation: "",
+    gender: "", ethnicity: "", veteranStatus: "", disabilityStatus: "", pronouns: ""
+  };
+}
+function applicantPayload(user) {
+  const { profile, answers } = store.getApplicant(user.id);
+  return { profile: { ...defaultApplicant(user), ...profile }, answers: answers || {} };
+}
+app.get("/api/applicant", auth, (req, res) => res.json(applicantPayload(req.user)));
+app.put("/api/applicant", auth, (req, res) => {
+  const b = req.body || {};
+  if (b.profile && typeof b.profile === "object") store.mergeApplicantProfile(req.user.id, b.profile);
+  if (b.answers && typeof b.answers === "object") store.mergeApplicantAnswers(req.user.id, b.answers);
+  res.json(applicantPayload(req.user));
+});
+// A default resume PDF for autofill before a specific job is saved.
+app.get("/api/applicant/resume.pdf", auth, (req, res) => {
+  const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
+  streamStructuredResumePdf(res, normalizeResume(BASE_RESUME), `${safe(req.user.first_name || BASE_RESUME.name)}-resume.pdf`);
 });
 
 /* ---------------------------- profile ----------------------------- */

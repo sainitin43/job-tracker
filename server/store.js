@@ -50,6 +50,26 @@ export function allUsers() {
   return data.users.slice();
 }
 
+/* applicant autofill profile + learned answer bank (per user) */
+export function getApplicant(userId) {
+  const u = getUserById(userId);
+  return { profile: (u && u.applicant_profile) || {}, answers: (u && u.applicant_answers) || {} };
+}
+export function mergeApplicantProfile(userId, fields) {
+  const u = getUserById(userId);
+  if (!u) return null;
+  u.applicant_profile = { ...(u.applicant_profile || {}), ...fields };
+  save();
+  return u.applicant_profile;
+}
+export function mergeApplicantAnswers(userId, answers) {
+  const u = getUserById(userId);
+  if (!u) return null;
+  u.applicant_answers = { ...(u.applicant_answers || {}), ...answers };
+  save();
+  return u.applicant_answers;
+}
+
 /* discover (per-user job search prefs + fetched matches) */
 const DEFAULT_PREFS = {
   searchTerm: "Software Engineer",
