@@ -2,7 +2,7 @@
 import PDFDocument from "pdfkit";
 
 export function streamStructuredResumePdf(res, r, downloadName) {
-  const doc = new PDFDocument({ size: "LETTER", margins: { top: 24, bottom: 18, left: 44, right: 44 } });
+  const doc = new PDFDocument({ size: "LETTER", margins: { top: 30, bottom: 26, left: 48, right: 48 } });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
   doc.pipe(res);
@@ -13,7 +13,7 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   const BLACK = "#000000";
 
   // sizes tuned to fill one full page with this resume's volume
-  const S = { name: 14.5, contact: 8.4, hdr: 9.2, comp: 8.4, title: 7.9, body: 7.7, lead: 8.8 };
+  const S = { name: 15.5, contact: 8.9, hdr: 9.9, comp: 9.1, title: 8.6, body: 8.5, lead: 9.6 };
 
   const moveY = dy => { doc.y += dy; };
 
@@ -59,11 +59,11 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   }
 
   function section(title) {
-    moveY(1.5);
+    moveY(2.5);
     doc.font("Times-Bold").fontSize(S.hdr).fillColor(BLACK).text(title.toUpperCase(), L, doc.y, { width: W });
     const y = doc.y + 1.5;
     doc.moveTo(L, y).lineTo(R, y).lineWidth(0.8).strokeColor(BLACK).stroke();
-    doc.y = y + 1.8;
+    doc.y = y + 3;
   }
 
   // two text columns on one baseline (left + right-aligned right)
@@ -72,7 +72,7 @@ export function streamStructuredResumePdf(res, r, downloadName) {
     doc.font(font).fontSize(size).fillColor(BLACK);
     doc.text(rightText, L, y, { width: W, align: "right" });   // right first (sets line height)
     doc.text(leftText, L, y, { width: W * 0.72, align: "left", lineBreak: false });
-    doc.y = y + size * 1.07;
+    doc.y = y + size * 1.16;
   }
 
   const GX = 12; // hanging-indent: x offset of bullet text from left margin
@@ -80,7 +80,7 @@ export function streamStructuredResumePdf(res, r, downloadName) {
     const y = doc.y;
     doc.font("Times-Roman").fontSize(S.body).fillColor(BLACK);
     doc.text("•", L + 2, y, { lineBreak: false });
-    doc.text(text, L + GX, y, { width: W - GX, align: "justify", lineGap: 0.1, paragraphGap: 0.4 });
+    doc.text(text, L + GX, y, { width: W - GX, align: "justify", lineGap: 0.5, paragraphGap: 1.2 });
   }
 
   function labeled(label, value) {
@@ -101,7 +101,7 @@ export function streamStructuredResumePdf(res, r, downloadName) {
     if (idx > 0) moveY(1);
     splitRow(e.company, e.location, "Times-Bold", S.comp);
     splitRow(e.title, e.dates, "Times-Italic", S.title);
-    moveY(0.3);
+    moveY(1);
     e.bullets.forEach(bullet);
   });
 
