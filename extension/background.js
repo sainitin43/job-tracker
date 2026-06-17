@@ -85,6 +85,7 @@ async function handle(msg) {
   switch (msg.type) {
     case "login": return login(msg.email, msg.password);
     case "google": return googleLogin();
+    case "redirectUri": return { uri: chrome.identity.getRedirectURL() };
     case "logout": await chrome.storage.local.remove(["jt_token", "jt_user"]); return { ok: true };
     case "session": return session();
     case "api": return api(msg.method, msg.path, msg.body);

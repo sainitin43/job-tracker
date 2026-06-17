@@ -11,6 +11,12 @@ function show(loggedIn, user) {
 async function refresh() {
   const { user } = await send({ type: "session" });
   show(!!user, user);
+  const r = await send({ type: "redirectUri" });
+  if (r && r.uri) {
+    const c = $("redirUri");
+    c.textContent = r.uri;
+    c.addEventListener("click", () => navigator.clipboard?.writeText(r.uri).then(() => { c.dataset.copied = "1"; c.textContent = r.uri + "  ✓ copied"; }));
+  }
 }
 
 $("loginBtn").addEventListener("click", async () => {
