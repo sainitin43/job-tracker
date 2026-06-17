@@ -99,7 +99,8 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   section("Professional Experience");
   r.experience.forEach((e, idx) => {
     if (idx > 0) moveY(1);
-    splitRow(e.header, e.dates, "Times-Bold", S.comp);
+    splitRow(e.company, e.location, "Times-Bold", S.comp);
+    splitRow(e.title, e.dates, "Times-Italic", S.title);
     moveY(0.3);
     e.bullets.forEach(bullet);
   });
