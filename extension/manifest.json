@@ -9,7 +9,8 @@
     "https://*.linkedin.com/*",
     "https://*.greenhouse.io/*",
     "https://*.lever.co/*",
-    "https://*.myworkdayjobs.com/*"
+    "https://*.myworkdayjobs.com/*",
+    "https://*.indeed.com/*"
   ],
   "action": { "default_popup": "popup.html", "default_title": "Job Tracker Auto-Applier" },
   "background": { "service_worker": "background.js" },
@@ -19,7 +20,8 @@
         "https://*.linkedin.com/*",
         "https://*.greenhouse.io/*",
         "https://*.lever.co/*",
-        "https://*.myworkdayjobs.com/*"
+        "https://*.myworkdayjobs.com/*",
+        "https://*.indeed.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],

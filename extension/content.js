@@ -13,6 +13,7 @@
     if (host.includes("greenhouse.io")) return "greenhouse";
     if (host.includes("lever.co")) return "lever";
     if (host.includes("myworkdayjobs.com")) return "workday";
+    if (host.includes("indeed.com")) return "indeed";
     return "generic";
   }
 
@@ -35,6 +36,11 @@
         description = txt(pick(['[data-automation-id="jobPostingDescription"]', '[data-automation-id="job-posting-details"]']));
         company = (location.host.split(".")[0] || "").replace(/^[a-z]+$/, m => m) || "";
         jobLoc = txt(pick(['[data-automation-id="locations"]', '[data-automation-id="jobPostingLocation"]']));
+      } else if (b === "indeed") {
+        title = txt(pick(['[data-testid="jobsearch-JobInfoHeader-title"]', "h1.jobsearch-JobInfoHeader-title", "h2.jobsearch-JobInfoHeader-title", "h1"]));
+        company = txt(pick(['[data-testid="inlineHeader-companyName"]', '[data-company-name="true"]', ".jobsearch-CompanyInfoContainer a", '[data-testid="company-name"]']));
+        jobLoc = txt(pick(['[data-testid="inlineHeader-companyLocation"]', '[data-testid="jobsearch-JobInfoHeader-companyLocation"]', '[data-testid="job-location"]']));
+        description = txt(pick(["#jobDescriptionText", ".jobsearch-JobComponent-description", ".jobsearch-jobDescriptionText"]));
       } else if (b === "linkedin") {
         title = txt(pick([".job-details-jobs-unified-top-card__job-title", ".top-card-layout__title", ".topcard__title", "h1"]));
         company = txt(pick([".job-details-jobs-unified-top-card__company-name", ".topcard__org-name-link", ".topcard__flavor a", ".jobs-unified-top-card__company-name"]));

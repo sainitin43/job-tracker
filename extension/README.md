@@ -1,7 +1,7 @@
 # Job Tracker — Auto-Applier (Chrome Extension)
 
 A Chrome (Manifest V3) extension that connects to your Job Tracker dashboard. On any
-LinkedIn, Greenhouse, Lever, or Workday posting it can:
+LinkedIn, Indeed, Greenhouse, Lever, or Workday posting it can:
 
 - **Save & Tailor** — scrape the posting into your dashboard and auto-generate an ATS‑tailored resume.
 - **Autofill** — fill the application form with your details (name, email, phone, links, work authorization, EEO, etc.) and attach your tailored resume PDF.
