@@ -1,12 +1,8 @@
 // Render the structured resume into a PDF matching the user's base format.
 import PDFDocument from "pdfkit";
 
-export function streamStructuredResumePdf(res, r, downloadName) {
-  const doc = new PDFDocument({ size: "LETTER", margins: { top: 30, bottom: 26, left: 48, right: 48 } });
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
-  doc.pipe(res);
-
+// Build the resume layout into an existing PDFDocument (does not pipe/end the response).
+function renderResume(doc, r) {
   const L = doc.page.margins.left;
   const R = doc.page.width - doc.page.margins.right;
   const W = R - L;
@@ -16,8 +12,8 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   const S = { name: 15.5, contact: 8.9, hdr: 9.9, comp: 9.1, title: 8.6, body: 8.5, lead: 9.6 };
 
   const moveY = dy => { doc.y += dy; };
-
   const LINK = "#0b3d8c";
+
   function header() {
     doc.font("Times-Bold").fontSize(S.name).fillColor(BLACK).text(r.name, L, doc.y, { width: W, align: "center" });
 
@@ -124,4 +120,55 @@ export function streamStructuredResumePdf(res, r, downloadName) {
   edu.forEach(ed => splitRow(ed.left, ed.right, "Times-Bold", S.comp));
 
   doc.end();
+}
+
+export function streamStructuredResumePdf(res, r, downloadName) {
+  const doc = new PDFDocument({ size: "LETTER", margins: { top: 30, bottom: 26, left: 48, right: 48 } });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+  doc.pipe(res);
+  renderResume(doc, r);
+}
+
+// Same resume layout, collected into a Buffer (for bundling into the Apply Kit zip).
+export function resumePdfBuffer(r) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "LETTER", margins: { top: 30, bottom: 26, left: 48, right: 48 } });
+    const chunks = [];
+    doc.on("data", c => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+    renderResume(doc, r);
+  });
+}
+
+// Render a simple, clean business-letter cover letter.
+function renderCoverLetter(doc, { name, contact, company, title, body, date }) {
+  const L = doc.page.margins.left;
+  const R = doc.page.width - doc.page.margins.right;
+  const W = R - L;
+  const BLACK = "#000000";
+
+  doc.font("Times-Bold").fontSize(15).fillColor(BLACK).text(name || "Candidate", L, doc.y, { width: W, align: "left" });
+  if (contact) doc.font("Times-Roman").fontSize(9.5).fillColor("#333").text(contact, L, doc.y + 1, { width: W });
+  doc.moveDown(0.8);
+  doc.font("Times-Roman").fontSize(10).fillColor(BLACK).text(date || new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }), L, doc.y, { width: W });
+  doc.moveDown(0.4);
+  if (company || title) {
+    doc.font("Times-Roman").fontSize(10.5).fillColor(BLACK).text(`Re: ${title || "Application"}${company ? " — " + company : ""}`, L, doc.y, { width: W });
+    doc.moveDown(0.6);
+  }
+  doc.font("Times-Roman").fontSize(11).fillColor(BLACK).text(body || "", L, doc.y, { width: W, align: "left", lineGap: 2.5, paragraphGap: 6 });
+  doc.end();
+}
+
+export function coverLetterPdfBuffer(opts) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "LETTER", margins: { top: 56, bottom: 56, left: 64, right: 64 } });
+    const chunks = [];
+    doc.on("data", c => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+    renderCoverLetter(doc, opts);
+  });
 }

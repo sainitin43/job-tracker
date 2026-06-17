@@ -6,8 +6,9 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 import * as store from "./store.js";
 import * as discover from "./discover.js";
-import { scoreMatch, buildTailoredResume, atsScore, coldOutreach, analyzeGap, fillGap, normalizeResume } from "./tailor.js";
-import { streamStructuredResumePdf } from "./resumePdf.js";
+import { scoreMatch, buildTailoredResume, atsScore, coldOutreach, analyzeGap, fillGap, normalizeResume, coverLetter } from "./tailor.js";
+import { streamStructuredResumePdf, resumePdfBuffer, coverLetterPdfBuffer } from "./resumePdf.js";
+import { makeZip } from "./zip.js";
 import { BASE_RESUME, resumeToText } from "./resumeTemplate.js";
 import * as recruiters from "./recruiters.js";
 
@@ -271,6 +272,50 @@ app.get("/api/jobs/:id/resume.pdf", auth, (req, res) => {
   const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
   const resume = normalizeResume(job.resume_data || BASE_RESUME); // structured tailored, else base template
   streamStructuredResumePdf(res, resume, `${safe(job.company)}-${safe(job.title)}-resume.pdf`);
+});
+
+// Generate a tailored cover letter (does not persist).
+app.post("/api/jobs/:id/coverletter", auth, async (req, res) => {
+  const job = store.getJob(req.params.id, req.user.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const jobLike = { title: job.title, company: job.company, location: job.location || "", description: job.description || "" };
+  const profile = profileFor(req.user, { searchTerm: job.title });
+  try {
+    const r = await coverLetter(jobLike, profile);
+    res.json(r); // { text, llm }
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Apply Kit: one zip with the tailored resume PDF, cover-letter PDF, and cold email.
+app.get("/api/jobs/:id/applykit.zip", auth, async (req, res) => {
+  const job = store.getJob(req.params.id, req.user.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "job";
+  const base = `${safe(job.company)}-${safe(job.title)}`;
+  const jobLike = { title: job.title, company: job.company, location: job.location || "", description: job.description || "" };
+  const profile = profileFor(req.user, { searchTerm: job.title });
+  try {
+    const resumeStruct = normalizeResume(job.resume_data || BASE_RESUME);
+    const [resumePdf, cl] = await Promise.all([
+      resumePdfBuffer(resumeStruct),
+      coverLetter(jobLike, profile)
+    ]);
+    const clPdf = await coverLetterPdfBuffer({ name: resumeStruct.name, contact: resumeStruct.contact, company: job.company, title: job.title, body: cl.text });
+    const email = await coldOutreach({ company: job.company, role: job.title, text: job.description || "" }, profile, "email");
+
+    const zip = makeZip([
+      { name: `${base}-Resume.pdf`, data: resumePdf },
+      { name: `${base}-Cover-Letter.pdf`, data: clPdf },
+      { name: `${base}-Cold-Email.txt`, data: email }
+    ]);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${base}-ApplyKit.zip"`);
+    res.send(zip);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 /* ---------------------------- profile ----------------------------- */

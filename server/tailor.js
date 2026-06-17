@@ -196,6 +196,57 @@ CANDIDATE SKILLS: ${(profile?.skills || []).join(", ")}`;
   return text;
 }
 
+// ---- Cover letter -------------------------------------------------------
+function coverLetterTemplate(job, profile) {
+  const me = profile?.name || "Candidate";
+  const role = job.title || "the open role";
+  const company = job.company || "your company";
+  const skills = topSkills(profile, 4);
+  return `Dear Hiring Team,
+
+I'm writing to apply for the ${role} position at ${company}. The role aligns closely with my background, and I'm confident I can contribute from day one.
+
+In my recent work I have delivered production software using ${skills}, focusing on reliability, performance, and clean, well-tested code. I take ownership of features end to end — from design through deployment — and consistently ship measurable improvements such as reduced latency, higher test coverage, and fewer production defects.
+
+What draws me to ${company} is the chance to apply this experience to ${role}, and I'm excited by the opportunity to help your team build software that scales. I'd welcome the chance to discuss how my skills map to your needs.
+
+Thank you for your time and consideration.
+
+Sincerely,
+${me}`;
+}
+
+async function coverLetterWithClaude(job, profile) {
+  const prompt =
+`Write a concise, professional cover letter (180-240 words) from a job seeker applying to the role below. Be specific and confident, not generic. Reference the role and company, highlight 2-3 of the candidate's most relevant skills/achievements, and stay 100% truthful (do not invent employers or experience). Use the format: "Dear Hiring Team," ... "Sincerely," then the candidate's name. Output ONLY the letter text.
+
+ROLE: ${job.title} @ ${job.company}
+LOCATION: ${job.location || ""}
+JOB DESCRIPTION:
+${(job.description || "").slice(0, 3500)}
+
+CANDIDATE NAME: ${profile?.name || ""}
+CANDIDATE SKILLS: ${(profile?.skills || []).join(", ")}`;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest", max_tokens: 700, messages: [{ role: "user", content: prompt }] })
+  });
+  if (!res.ok) throw new Error("Anthropic " + res.status + ": " + (await res.text()).slice(0, 140));
+  const data = await res.json();
+  const text = (data.content || []).map(c => c.text || "").join("").trim();
+  if (!text) throw new Error("empty");
+  return text;
+}
+
+export async function coverLetter(job, profile) {
+  if (process.env.ANTHROPIC_API_KEY) {
+    try { return { text: await coverLetterWithClaude(job, profile), llm: true }; }
+    catch (e) { console.error("[coverletter] LLM failed, using template:", e.message); }
+  }
+  return { text: coverLetterTemplate(job, profile), llm: false };
+}
+
 // Match scoring + template-based ATS resume tailoring (no external LLM).
 
 const DEFAULT_SKILLS = [

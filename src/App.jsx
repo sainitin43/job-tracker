@@ -172,6 +172,11 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   const [gapFix, setGapFix] = useState(null);        // { resume, resumeData, before, ats, missingRemaining[], llm }
   const [gapBusy, setGapBusy] = useState(false);     // fixing in progress
 
+  const [clJob, setClJob] = useState(null);          // cover-letter modal target
+  const [clData, setClData] = useState(null);        // { text, llm }
+  const [clBusy, setClBusy] = useState(false);
+  const [kitBusy, setKitBusy] = useState(null);      // job id currently building an Apply Kit
+
   const [rec, setRec] = useState(null);          // { enabled, prefs, posts, lastRefreshedAt }
   const [recLoading, setRecLoading] = useState(false);
   const [recRefreshing, setRecRefreshing] = useState(false);
@@ -380,6 +385,39 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   }
   function closeGap() { setGapJob(null); setGapData(null); setGapFix(null); setGapBusy(false); }
 
+  async function openCoverLetter(job) {
+    setClJob(job); setClData(null); setClBusy(true);
+    try {
+      const r = await call(`/jobs/${job.id}/coverletter`, { method: "POST" });
+      setClData(r);
+    } catch (e) { alert(e.message); setClJob(null); }
+    finally { setClBusy(false); }
+  }
+  async function regenCoverLetter() {
+    if (!clJob) return;
+    setClBusy(true);
+    try { setClData(await call(`/jobs/${clJob.id}/coverletter`, { method: "POST" })); }
+    catch (e) { alert(e.message); }
+    finally { setClBusy(false); }
+  }
+  function closeCoverLetter() { setClJob(null); setClData(null); setClBusy(false); }
+  function copyCoverLetter() { if (clData?.text) navigator.clipboard?.writeText(clData.text); }
+  function downloadCoverLetterTxt() { if (clJob && clData?.text) download(`${clJob.company}-${clJob.title}-cover-letter.txt`, clData.text); }
+
+  async function downloadApplyKit(job) {
+    setKitBusy(job.id);
+    try {
+      const res = await fetch(`${API_BASE}/jobs/${job.id}/applykit.zip`, { headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Couldn't build the Apply Kit.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${job.company}-${job.title}-ApplyKit.zip`.replace(/[^\w.\- ]+/g, "_"); a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert(e.message); }
+    finally { setKitBusy(null); }
+  }
+
   function exportData() { download(`${user.firstName}-jobs.json`, JSON.stringify(jobs, null, 2), "application/json"); }
   function downloadResume(job) { if (!job?.resume) return; download(`${job.company}-${job.title}-resume.txt`, job.resume); }
   async function downloadResumePdf(job) {
@@ -495,7 +533,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                       <span>📍 {job.location || "—"}</span>
                       <span>💼 {job.type || "—"}</span>
                       <span>💰 {job.pay || "—"}</span>
-                      {job.datePosted && <span>🗓️ Posted {job.datePosted}</span>}
+                      {job.datePosted && <span>🗓️ Posted {job.datePosted}{relativeDays(job.datePosted) ? ` (${relativeDays(job.datePosted)})` : ""}</span>}
                       {job.source && <span>🌐 {job.source}</span>}
                       <span>{job.resume ? "📝 Resume ready" : "📝 No resume"}</span>
                     </div>
@@ -506,6 +544,8 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                       <button className="btn" onClick={() => toggleExpand(job.id, "resume")} disabled={!job.resume}>{showResume ? "Hide Resume" : "📝 Tailored Resume"}</button>
                       <button className="btn" onClick={() => reTailor(job)}>♻️ Re-tailor</button>
                       <button className="btn" onClick={() => openGap(job)}>🎯 ATS Gaps</button>
+                      <button className="btn kit" onClick={() => openCoverLetter(job)}>✉️ Cover Letter</button>
+                      <button className="btn kit" onClick={() => downloadApplyKit(job)} disabled={kitBusy === job.id}>{kitBusy === job.id ? "📦 Building…" : "📦 Apply Kit"}</button>
                       <button className="btn" onClick={() => toggleExpand(job.id, "jd")}>{showJD ? "Hide JD" : "📄 View JD"}</button>
                       <button className="btn" onClick={() => editJob(job)}>✏️ Edit</button>
                       <button className="btn danger" onClick={() => deleteJob(job.id)}>🗑️ Delete</button>
@@ -596,7 +636,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                   New ATS match: <strong>{retailorResult.ats}%</strong>
                   {retailorResult.llm === false && <span className="findHint"> · add Anthropic credits for a full LLM rewrite</span>}
                 </p>
-                <textarea className="resumeBox" readOnly value={retailorResult.resume} />
+                <ResumeDiff oldText={retailorJob.resume} newText={retailorResult.resume} />
                 <p className="applyQ">Do you want to update this job's resume with this version?</p>
                 <div className="modalActions">
                   <button onClick={discardRetailor}>No, keep current</button>
@@ -683,11 +723,37 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                     {gapFix.missingRemaining.map(k => <span key={k} className="gapChip missing">{k}</span>)}
                   </div>
                 )}
-                <textarea className="resumeBox" readOnly value={gapFix.resume} />
+                <ResumeDiff oldText={gapJob.resume} newText={gapFix.resume} />
                 <p className="applyQ">Update this job's resume with the gap-fixed version?</p>
                 <div className="modalActions">
                   <button onClick={closeGap}>No, keep current</button>
                   <button className="primary" onClick={applyGapFix}>Yes, update resume</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {clJob && (
+        <div className="modalOverlay" onClick={closeCoverLetter}>
+          <div className="modalCard" onClick={e => e.stopPropagation()}>
+            <div className="modalHead">
+              <div>
+                <p className="eyebrow">Cover letter</p>
+                <h2>{clJob.company} — {clJob.title}</h2>
+              </div>
+              <button className="closeBtn" onClick={closeCoverLetter} aria-label="Close">×</button>
+            </div>
+            {clBusy && <p className="emptyState">Writing a tailored cover letter…</p>}
+            {!clBusy && clData && (
+              <>
+                {clData.llm === false && <p className="findHint">Template draft · add Anthropic credits for a fully AI-written letter.</p>}
+                <textarea className="resumeBox" readOnly value={clData.text} />
+                <div className="modalActions">
+                  <button onClick={copyCoverLetter}>📋 Copy</button>
+                  <button onClick={downloadCoverLetterTxt}>⬇️ Download .txt</button>
+                  <button className="primary" onClick={regenCoverLetter}>♻️ Regenerate</button>
                 </div>
               </>
             )}
@@ -710,6 +776,38 @@ async function migrateLocalJobs(email, call) {
 }
 
 function scoreClass(s) { return s >= 75 ? "score-high" : s >= 50 ? "score-mid" : "score-low"; }
+
+// Read-only resume preview that highlights lines added/changed vs the current resume in green.
+function ResumeDiff({ oldText, newText }) {
+  const norm = s => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const oldSet = new Set((oldText || "").split("\n").map(norm).filter(Boolean));
+  const lines = (newText || "").split("\n");
+  return (
+    <div className="resumeDiff">
+      <p className="diffLegend"><span className="diffSwatch" /> green = new or changed for this job</p>
+      <pre className="diffBody">
+        {lines.map((ln, i) => {
+          const changed = ln.trim() && !oldSet.has(norm(ln));
+          return <div key={i} className={changed ? "diffAdd" : ""}>{ln || " "}</div>;
+        })}
+      </pre>
+    </div>
+  );
+}
+
+// "3 days ago" / "today" / "yesterday" from a posted date string.
+function relativeDays(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d)) return "";
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days < 0) return "";
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "1 month ago" : `${months} months ago`;
+}
 
 function RecruiterPanel({ rec, loading, refreshing, onRefresh, setRPref, expanded, setExpanded, onSave, onPdf }) {
   if (loading || rec === null) return <section className="panel"><p className="emptyState">Loading recruiter posts…</p></section>;
