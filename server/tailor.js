@@ -121,10 +121,11 @@ export function normalizeResume(rd) {
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
-// No-LLM weave: place each missing keyword into an EXPERIENCE bullet (not the
-// skills list). Preference order: (1) next to a sibling technology already in a
-// bullet so it reads naturally ("Retrofit, OkHttp"); (2) distributed as a short
-// trailing clause on the most relevant role's bullets. Keeps bullet count fixed.
+// No-LLM weave: place each missing keyword by MODIFYING an existing EXPERIENCE
+// bullet (not the skills list) — inserting it next to a sibling technology
+// already in a bullet so it reads naturally ("Retrofit, OkHttp"). Only if some
+// keywords cannot be woven into any existing bullet do we add ONE combined new
+// bullet on the most relevant role. Skills section is left untouched.
 function weaveKeywordsHeuristic(experience, missing) {
   const exp = experience.map(e => ({ ...e, bullets: [...e.bullets] }));
   const remaining = [];
@@ -147,16 +148,10 @@ function weaveKeywordsHeuristic(experience, missing) {
     }
     if (!placed) remaining.push(kw);
   }
-  // distribute leftovers across roles as concise trailing clauses
+  // Anything that couldn't be woven into an existing bullet goes into ONE
+  // combined bullet on the most relevant (first/most-recent) role.
   if (remaining.length && exp.length) {
-    const per = Math.ceil(remaining.length / exp.length);
-    exp.forEach((e, ri) => {
-      const chunk = remaining.slice(ri * per, (ri + 1) * per);
-      if (chunk.length && e.bullets.length) {
-        const last = e.bullets.length - 1;
-        e.bullets[last] = e.bullets[last].replace(/\s*$/, "") + ` Additionally applied ${chunk.join(", ")}.`;
-      }
-    });
+    exp[0].bullets.push(`Delivered production features leveraging ${remaining.join(", ")}, applying them across development, testing, and deployment.`);
   }
   return exp;
 }
