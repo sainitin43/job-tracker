@@ -6,9 +6,10 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 import * as store from "./store.js";
 import * as discover from "./discover.js";
-import { scoreMatch, buildTailoredResume } from "./tailor.js";
+import { scoreMatch, buildTailoredResume, atsScore, coldOutreach } from "./tailor.js";
 import { streamStructuredResumePdf } from "./resumePdf.js";
-import { BASE_RESUME } from "./resumeTemplate.js";
+import { BASE_RESUME, resumeToText } from "./resumeTemplate.js";
+import * as recruiters from "./recruiters.js";
 
 dotenv.config();
 
@@ -65,6 +66,7 @@ function rowToJob(r) {
     resumeFileType: r.resume_type || "",
     favourite: !!r.favourite,
     score: typeof r.score === "number" ? r.score : null,
+    ats: typeof r.ats === "number" ? r.ats : null,
     source: r.source || "",
     datePosted: r.date_posted || ""
   };
@@ -91,6 +93,7 @@ function makeJobRow(b, userId) {
     resume_type: b.resumeFileType || "",
     favourite: !!b.favourite,
     score: typeof b.score === "number" ? b.score : null,
+    ats: typeof b.ats === "number" ? b.ats : null,
     source: b.source || "",
     date_posted: b.datePosted || "",
     created_at: now()
@@ -269,10 +272,11 @@ async function findAndCreateJobs(user) {
       const u = (job.url || "").toLowerCase();
       if (u && existingUrls.has(u)) continue;
       const { struct, text } = await buildTailoredResume(job, profile, match);
+      const ats = atsScore(job.description, text).score;
       store.addJob(makeJobRow({
         company: job.company, title: job.title, url: job.url, location: job.location,
         type: job.type, pay: job.pay, status: "Not Applied", description: job.description,
-        resume: text, resumeData: struct, favourite: false, score: match.score, source: job.source, datePosted: job.datePosted
+        resume: text, resumeData: struct, favourite: false, score: match.score, ats, source: job.source, datePosted: job.datePosted
       }, user.id));
       if (u) existingUrls.add(u);
       added++;
@@ -304,6 +308,59 @@ app.post("/api/discover/refresh", auth, async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+/* ----------------------- recruiter hiring posts ----------------------- */
+async function refreshRecruiterPosts(user) {
+  const d = store.getRecruiters(user.id);
+  store.setRecruiterRefreshing(user.id, true);
+  try {
+    const raw = await recruiters.fetchRecruiterPosts(d.prefs);
+    const baseProfile = { name: BASE_RESUME.name, baseResume: resumeToText(BASE_RESUME), skills: (user.skills || []) };
+    const enriched = [];
+    for (const post of raw) {
+      const jobLike = { title: post.role || (d.prefs.jobRoles || [])[0] || "Software Engineer", company: post.company, description: post.text || "", location: post.location };
+      const profile = { ...baseProfile, searchTerm: jobLike.title };
+      const match = scoreMatch(jobLike, profile);
+      const { struct, text } = await buildTailoredResume(jobLike, profile, match);
+      const ats = atsScore(jobLike.description + " " + jobLike.title, text).score;
+      const ctx = { recruiter: post.recruiter, company: post.company, role: jobLike.title, text: post.text };
+      const emailDraft = await coldOutreach(ctx, profile, "email");
+      const linkedinDraft = await coldOutreach(ctx, profile, "linkedin");
+      enriched.push({ ...post, role: jobLike.title, resume: text, resumeData: struct, ats, emailDraft, linkedinDraft });
+    }
+    store.setRecruiterPosts(user.id, enriched);
+    return enriched;
+  } finally {
+    store.setRecruiterRefreshing(user.id, false);
+  }
+}
+
+app.get("/api/recruiters", auth, (req, res) => {
+  const d = store.getRecruiters(req.user.id);
+  res.json({ enabled: recruiters.recruitersEnabled(), prefs: d.prefs, posts: d.posts, lastRefreshedAt: d.lastRefreshedAt, refreshing: d.refreshing });
+});
+app.put("/api/recruiters/prefs", auth, (req, res) => {
+  res.json({ prefs: store.setRecruiterPrefs(req.user.id, req.body || {}) });
+});
+app.post("/api/recruiters/refresh", auth, async (req, res) => {
+  if (!recruiters.recruitersEnabled()) return res.status(400).json({ error: "Add APIFY_TOKEN to the server .env to fetch recruiter posts." });
+  if (req.body && Object.keys(req.body).length) store.setRecruiterPrefs(req.user.id, req.body);
+  try {
+    const posts = await refreshRecruiterPosts(req.user);
+    res.json({ posts, lastRefreshedAt: store.getRecruiters(req.user.id).lastRefreshedAt });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Download a recruiter-post tailored resume as PDF
+app.get("/api/recruiters/:id/resume.pdf", auth, (req, res) => {
+  const d = store.getRecruiters(req.user.id);
+  const post = (d.posts || []).find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: "Post not found" });
+  const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
+  streamStructuredResumePdf(res, post.resumeData || BASE_RESUME, `${safe(post.company || "recruiter")}-${safe(post.role)}-resume.pdf`);
 });
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, apify: discover.apifyEnabled() }));

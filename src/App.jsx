@@ -9,7 +9,7 @@ function googleClientId() { return GOOGLE_CLIENT_ID || localStorage.getItem("jt-
 
 const STATUSES = ["Not Applied", "Applied", "Interviewing", "Rejected", "Offer"];
 const statusSlug = s => (s || "").toLowerCase().replace(/\s+/g, "-");
-const TABS = ["Not Applied", "Applied", "Favourite"];
+const TABS = ["Not Applied", "Applied", "Favourite", "Recruiter Posts"];
 
 const TECH_STACKS = [
   "Java", "Kotlin", "Android", "Jetpack Compose", "Swift", "iOS",
@@ -163,6 +163,11 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   const [applyJob, setApplyJob] = useState(null);
   const pendingRef = useRef(null);
 
+  const [rec, setRec] = useState(null);          // { enabled, prefs, posts, lastRefreshedAt }
+  const [recLoading, setRecLoading] = useState(false);
+  const [recRefreshing, setRecRefreshing] = useState(false);
+  const [recExpanded, setRecExpanded] = useState(null); // { id, tab:'email'|'linkedin'|'resume'|'post' }
+
   const call = useCallback((path, opts = {}) => api(path, { ...opts, token }).catch(err => {
     if (/401|token/i.test(err.message)) onAuthExpired();
     throw err;
@@ -278,6 +283,48 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
     finally { setFinding(false); }
   }
 
+  // ---- Recruiter posts ----
+  const loadRecruiters = useCallback(async () => {
+    setRecLoading(true);
+    try { setRec(await call("/recruiters")); } catch { /* */ }
+    finally { setRecLoading(false); }
+  }, [call]);
+
+  async function refreshRecruiters() {
+    setRecRefreshing(true);
+    try {
+      const body = rec?.prefs || {};
+      const { posts, lastRefreshedAt } = await call("/recruiters/refresh", { method: "POST", body });
+      setRec(d => ({ ...d, posts, lastRefreshedAt }));
+    } catch (e) { alert(e.message); }
+    finally { setRecRefreshing(false); }
+  }
+  function setRPref(key, value) { setRec(d => ({ ...d, prefs: { ...d.prefs, [key]: value } })); }
+  function toggleRecExpand(id, t) { setRecExpanded(p => (p && p.id === id && p.tab === t ? null : { id, tab: t })); }
+  async function downloadRecruiterPdf(post) {
+    try {
+      const res = await fetch(`${API_BASE}/recruiters/${post.id}/resume.pdf`, { headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Couldn't generate the PDF.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${post.company || "recruiter"}-${post.role}-resume.pdf`.replace(/[^\w.\- ]+/g, "_"); a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert(e.message); }
+  }
+  async function saveRecruiterPost(post) {
+    try {
+      const body = { company: post.company || post.recruiter, title: post.role, url: post.url, location: post.location, status: "Not Applied", description: post.text, resume: post.resume || "", resumeData: post.resumeData || null, ats: post.ats, source: "recruiter post" };
+      const { job } = await call("/jobs", { method: "POST", body });
+      setJobs(prev => [job, ...prev]);
+      alert(`Saved “${post.role}” to your jobs.`);
+    } catch (e) { alert(e.message); }
+  }
+
+  useEffect(() => {
+    if (tab === "Recruiter Posts" && rec === null) loadRecruiters();
+  }, [tab, rec, loadRecruiters]);
+
   function exportData() { download(`${user.firstName}-jobs.json`, JSON.stringify(jobs, null, 2), "application/json"); }
   function downloadResume(job) { if (!job?.resume) return; download(`${job.company}-${job.title}-resume.txt`, job.resume); }
   async function downloadResumePdf(job) {
@@ -340,7 +387,8 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
       <nav className="viewTabs">
         {TABS.map(t => (
           <button key={t} className={"viewTab" + (tab === t ? " active" : "")} onClick={() => setTab(t)}>
-            {t === "Favourite" ? "⭐ Favourite" : t} <span className="tabCount">{counts[t]}</span>
+            {t === "Favourite" ? "⭐ Favourite" : t === "Recruiter Posts" ? "📣 Recruiter Posts" : t}
+            <span className="tabCount">{t === "Recruiter Posts" ? (rec?.posts?.length || 0) : counts[t]}</span>
           </button>
         ))}
       </nav>
@@ -357,6 +405,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
             </div>
           )}
 
+          {tab !== "Recruiter Posts" && (
           <section className="panel">
             <div className="jobList">
               {loading && <p className="emptyState">Loading…</p>}
@@ -381,6 +430,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                         </select>
                       </span>
                       {typeof job.score === "number" && <span className={"scorePill " + scoreClass(job.score)}>{job.score}% match</span>}
+                      {typeof job.ats === "number" && <span className={"scorePill ats " + scoreClass(job.ats)}>ATS {job.ats}%</span>}
                       <button className={"starBtn" + (job.favourite ? " on" : "")} onClick={() => toggleFavourite(job)} title="Favourite" aria-label="Favourite">
                         {job.favourite ? "★" : "☆"}
                       </button>
@@ -426,6 +476,16 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
               })}
             </div>
           </section>
+          )}
+
+          {tab === "Recruiter Posts" && (
+            <RecruiterPanel
+              rec={rec} loading={recLoading} refreshing={recRefreshing}
+              onRefresh={refreshRecruiters} setRPref={setRPref}
+              expanded={recExpanded} setExpanded={toggleRecExpand}
+              onSave={saveRecruiterPost} onPdf={downloadRecruiterPdf}
+            />
+          )}
         </div>
       </section>
 
@@ -490,6 +550,92 @@ async function migrateLocalJobs(email, call) {
 }
 
 function scoreClass(s) { return s >= 75 ? "score-high" : s >= 50 ? "score-mid" : "score-low"; }
+
+function RecruiterPanel({ rec, loading, refreshing, onRefresh, setRPref, expanded, setExpanded, onSave, onPdf }) {
+  if (loading || rec === null) return <section className="panel"><p className="emptyState">Loading recruiter posts…</p></section>;
+  const prefs = rec.prefs || {};
+  const posts = rec.posts || [];
+  const exp = expanded || {};
+  const csv = arr => (arr || []).join(", ");
+  return (
+    <section className="panel">
+      <div className="panelHead">
+        <div>
+          <h2>Recruiter Posts</h2>
+          <p>Live "we're hiring" posts from recruiters — each with a tailored resume, an ATS score, and a ready cold email / LinkedIn message.</p>
+        </div>
+        <button className="primary" onClick={onRefresh} disabled={refreshing || !rec.enabled}>{refreshing ? "Searching…" : "🔄 Find recruiter posts"}</button>
+      </div>
+
+      {!rec.enabled && (
+        <div className="setupNote"><strong>Add APIFY_TOKEN to the server .env</strong><p>to pull recruiter hiring posts.</p></div>
+      )}
+
+      <div className="findBar">
+        <label>Role<input value={csv(prefs.jobRoles)} onChange={e => setRPref("jobRoles", e.target.value.split(",").map(s => s.trim()).filter(Boolean))} placeholder="e.g. Android Engineer" /></label>
+        <label>Location<input value={csv(prefs.locations)} onChange={e => setRPref("locations", e.target.value.split(",").map(s => s.trim()).filter(Boolean))} placeholder="e.g. United States, Remote" /></label>
+        <label>Tech<input value={csv(prefs.keywords)} onChange={e => setRPref("keywords", e.target.value.split(",").map(s => s.trim()).filter(Boolean))} placeholder="e.g. Kotlin, React" /></label>
+      </div>
+
+      <p className="discMeta">{rec.lastRefreshedAt ? `Last updated ${new Date(rec.lastRefreshedAt).toLocaleString()}` : "Not fetched yet."}{posts.length ? ` · ${posts.length} posts` : ""}</p>
+
+      <div className="jobList">
+        {posts.length === 0 && <p className="emptyState">{rec.enabled ? "No posts yet — set your role and click “Find recruiter posts”." : "Enable fetching to see recruiter posts."}</p>}
+        {posts.map(post => {
+          const show = t => exp.id === post.id && exp.tab === t;
+          const channel = show("email") ? "email" : show("linkedin") ? "linkedin" : null;
+          return (
+            <div key={post.id} className="jobCard">
+              <div className="jobCardTitleRow">
+                <h3>{post.recruiter}{post.company ? ` · ${post.company}` : ""}</h3>
+                {typeof post.score === "number" && <span className="scorePill score-mid">🔥 {post.score}</span>}
+                {typeof post.ats === "number" && <span className={"scorePill ats " + scoreClass(post.ats)}>ATS {post.ats}%</span>}
+              </div>
+              <p className="jobRole">{post.role || "Hiring"}</p>
+              <div className="jobMeta">
+                <span>📍 {post.location || "—"}</span>
+                {post.postedDate && <span>🗓️ {post.postedDate}</span>}
+                <span>📣 recruiter post</span>
+              </div>
+
+              <div className="jobCardActions">
+                <a className="btn ghost" href={post.url} target="_blank" rel="noreferrer">🔗 Open Post</a>
+                <select className="outreachSelect" value={channel || ""} onChange={e => setExpanded(post.id, e.target.value)}>
+                  <option value="">✉️ Cold outreach…</option>
+                  <option value="email">Cold Email</option>
+                  <option value="linkedin">LinkedIn Message</option>
+                </select>
+                <button className="btn" onClick={() => setExpanded(post.id, "resume")}>📝 Tailored Resume</button>
+                <button className="btn" onClick={() => onPdf(post)}>⬇️ Resume PDF</button>
+                <button className="btn primary" onClick={() => onSave(post)}>➕ Save to My Jobs</button>
+              </div>
+
+              {channel && (
+                <div className="jobDesc open"><div className="jobDescInner">
+                  <h4>{channel === "email" ? "Cold Email" : "LinkedIn Message"}</h4>
+                  <textarea className="resumeBox" readOnly value={channel === "email" ? post.emailDraft : post.linkedinDraft} />
+                  <div className="actions wrap">
+                    <button className="primary" onClick={() => navigator.clipboard.writeText((channel === "email" ? post.emailDraft : post.linkedinDraft) || "")}>Copy</button>
+                  </div>
+                </div></div>
+              )}
+              {show("resume") && (
+                <div className="jobDesc open"><div className="jobDescInner">
+                  <h4>Tailored ATS Resume</h4>
+                  <textarea className="resumeBox" readOnly value={post.resume || ""} />
+                  <div className="actions wrap">
+                    <button className="primary" onClick={() => onPdf(post)}>⬇️ Download PDF</button>
+                    <button onClick={() => navigator.clipboard.writeText(post.resume || "")}>Copy</button>
+                  </div>
+                </div></div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function GoogleIcon() {
   return (

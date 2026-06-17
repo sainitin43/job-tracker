@@ -518,3 +518,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 /* ---------------- Apply prompt ---------------- */
 .modalCard.small { max-width: 460px; }
 .applyQ { color: #d6ddf2; line-height: 1.6; margin: 4px 0 6px; }
+
+/* ---------------- Recruiter outreach dropdown + ATS badge ---------------- */
+.outreachSelect {
+  appearance: none; -webkit-appearance: none;
+  background: #1b2541; color: #e8ecf7; border: 1px solid var(--line);
+  border-radius: 11px; padding: 9px 13px; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.outreachSelect:hover { background: #26315a; }
+.outreachSelect option { color: #0a1124; }
+.scorePill.ats { background: rgba(124,92,255,.16); color: #c9bcff; border-color: rgba(124,92,255,.45); }

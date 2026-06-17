@@ -1,5 +1,86 @@
 import { BASE_RESUME, resumeToText } from "./resumeTemplate.js";
 
+// ---- Strict ATS scoring -------------------------------------------------
+const ATS_KEYWORDS = [
+  "Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go", "C++", "C#", "Swift",
+  "Android", "iOS", "Jetpack Compose", "MVVM", "MVI", "Coroutines", "Flow", "RxJava",
+  "React", "Redux", "Angular", "Vue", "Node.js", "Spring Boot", "Express", "GraphQL", "REST",
+  "Retrofit", "OkHttp", "Hilt", "Dagger", "Room", "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis",
+  "Kafka", "RabbitMQ", "AWS", "GCP", "Azure", "Docker", "Kubernetes", "Terraform", "CI/CD",
+  "Jenkins", "Maven", "Gradle", "Git", "Agile", "Scrum", "Microservices", "OAuth", "JWT",
+  "JUnit", "Espresso", "Mockito", "Jest", "Cypress", "Playwright", "Selenium",
+  "TensorFlow", "PyTorch", "Machine Learning", "LLM", "GenAI", "MediaPipe", "ML Kit", "CameraX",
+  "Kotlin Multiplatform", "Compose Multiplatform", "WebSocket", "gRPC"
+];
+
+// Strict ATS score = % of keywords the JD asks for that actually appear in the resume.
+export function atsScore(jobText, resumeText) {
+  const jd = (jobText || "").toLowerCase();
+  const asked = ATS_KEYWORDS.filter(k => jd.includes(k.toLowerCase()));
+  if (asked.length === 0) return { score: null, matched: [], missing: [] };
+  const rt = (resumeText || "").toLowerCase();
+  const matched = asked.filter(k => rt.includes(k.toLowerCase()));
+  const missing = asked.filter(k => !rt.includes(k.toLowerCase()));
+  return { score: Math.round((matched.length / asked.length) * 100), matched, missing };
+}
+
+// ---- Cold outreach to recruiters ---------------------------------------
+function firstName(name) { return (name || "there").trim().split(/\s+/)[0]; }
+function topSkills(profile, n = 4) {
+  const s = (profile?.skills && profile.skills.length) ? profile.skills : ["Kotlin", "Android", "Java", "Spring Boot"];
+  return s.slice(0, n).join(", ");
+}
+function outreachTemplate(ctx, profile, channel) {
+  const fn = firstName(ctx.recruiter);
+  const role = ctx.role || "the open role";
+  const company = ctx.company || "your team";
+  const me = profile?.name || "Candidate";
+  const skills = topSkills(profile);
+  if (channel === "linkedin") {
+    return `Hi ${fn}, I saw your post about hiring for ${role}${ctx.company ? " at " + company : ""}. I'm a software engineer with hands-on experience in ${skills}, and it looks like a strong match. I'd love to be considered — happy to share my resume. Thanks for your time!`;
+  }
+  return `Subject: ${role} — ${me}
+
+Hi ${fn},
+
+I came across your post about hiring for ${role}${ctx.company ? " at " + company : ""} and wanted to reach out directly. I'm a software engineer with hands-on experience in ${skills}, and my background lines up closely with what you're looking for.
+
+I'd welcome the chance to be considered — I've attached a tailored resume and would be glad to share more or set up a quick call.
+
+Best regards,
+${me}`;
+}
+export async function coldOutreach(ctx, profile, channel) {
+  if (process.env.ANTHROPIC_API_KEY) {
+    try { return await coldWithClaude(ctx, profile, channel); }
+    catch (e) { console.error("[outreach] LLM failed, using template:", e.message); }
+  }
+  return outreachTemplate(ctx, profile, channel);
+}
+async function coldWithClaude(ctx, profile, channel) {
+  const kind = channel === "linkedin" ? "a concise LinkedIn connection message (max 90 words, no subject line)" : "a short cold email (with a Subject: line, under 160 words)";
+  const prompt =
+`Write ${kind} from a job seeker to a recruiter who posted that they are hiring. Be warm, specific, and confident — not generic. Reference the role and company. Highlight 2-3 of the candidate's most relevant skills. End with a clear ask to be considered. Output ONLY the message text.
+
+RECRUITER: ${ctx.recruiter || ""}
+COMPANY: ${ctx.company || ""}
+ROLE: ${ctx.role || ""}
+POST: ${(ctx.text || "").slice(0, 800)}
+
+CANDIDATE NAME: ${profile?.name || ""}
+CANDIDATE SKILLS: ${(profile?.skills || []).join(", ")}`;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-latest", max_tokens: 500, messages: [{ role: "user", content: prompt }] })
+  });
+  if (!res.ok) throw new Error("Anthropic " + res.status);
+  const data = await res.json();
+  const text = (data.content || []).map(c => c.text || "").join("").trim();
+  if (!text) throw new Error("empty");
+  return text;
+}
+
 // Match scoring + template-based ATS resume tailoring (no external LLM).
 
 const DEFAULT_SKILLS = [

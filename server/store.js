@@ -7,17 +7,17 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_FILE = path.join(__dirname, "data.json");
 
-let data = { users: [], jobs: [], discover: {} };
+let data = { users: [], jobs: [], discover: {}, recruiters: {} };
 
 function load() {
   try {
     if (fs.existsSync(DB_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
-      data = { users: parsed.users || [], jobs: parsed.jobs || [], discover: parsed.discover || {} };
+      data = { users: parsed.users || [], jobs: parsed.jobs || [], discover: parsed.discover || {}, recruiters: parsed.recruiters || {} };
     }
   } catch (e) {
     console.error("Failed to read data.json, starting empty:", e.message);
-    data = { users: [], jobs: [], discover: {} };
+    data = { users: [], jobs: [], discover: {}, recruiters: {} };
   }
 }
 function save() {
@@ -80,6 +80,38 @@ export function setDiscoverJobs(userId, jobs) {
 }
 export function setRefreshing(userId, val) {
   const d = getDiscover(userId);
+  d.refreshing = !!val;
+  save();
+}
+
+/* recruiter hiring posts (per-user) */
+const DEFAULT_RECRUITER_PREFS = {
+  jobRoles: ["Software Engineer"],
+  locations: ["United States"],
+  keywords: [],
+  maxResults: 10
+};
+export function getRecruiters(userId) {
+  if (!data.recruiters[userId]) {
+    data.recruiters[userId] = { prefs: { ...DEFAULT_RECRUITER_PREFS }, posts: [], lastRefreshedAt: null, refreshing: false };
+  }
+  return data.recruiters[userId];
+}
+export function setRecruiterPrefs(userId, prefs) {
+  const d = getRecruiters(userId);
+  d.prefs = { ...d.prefs, ...prefs };
+  save();
+  return d.prefs;
+}
+export function setRecruiterPosts(userId, posts) {
+  const d = getRecruiters(userId);
+  d.posts = posts;
+  d.lastRefreshedAt = new Date().toISOString();
+  save();
+  return d;
+}
+export function setRecruiterRefreshing(userId, val) {
+  const d = getRecruiters(userId);
   d.refreshing = !!val;
   save();
 }
