@@ -1,17 +1,21 @@
 // Render the structured resume into a PDF matching the user's base format.
 import PDFDocument from "pdfkit";
 
-// Build the resume layout into an existing PDFDocument (does not pipe/end the response).
-function renderResume(doc, r) {
+const MARGINS = { top: 30, bottom: 26, left: 48, right: 48 };
+
+// Build the resume layout into an existing PDFDocument (does not end the doc).
+// `scale` (<=1) shrinks fonts + spacing so a longer resume still fits one page.
+function renderResume(doc, r, scale = 1) {
   const L = doc.page.margins.left;
   const R = doc.page.width - doc.page.margins.right;
   const W = R - L;
   const BLACK = "#000000";
 
-  // sizes tuned to fill one full page with this resume's volume
-  const S = { name: 15.5, contact: 8.9, hdr: 9.9, comp: 9.1, title: 8.6, body: 8.5, lead: 9.6 };
+  // sizes tuned to fill one full page; multiplied by scale when content is long
+  const B = { name: 15.5, contact: 8.9, hdr: 9.9, comp: 9.1, title: 8.6, body: 8.5, lead: 9.6 };
+  const S = Object.fromEntries(Object.entries(B).map(([k, v]) => [k, v * scale]));
 
-  const moveY = dy => { doc.y += dy; };
+  const moveY = dy => { doc.y += dy * scale; };
   const LINK = "#0b3d8c";
 
   function header() {
@@ -57,9 +61,9 @@ function renderResume(doc, r) {
   function section(title) {
     moveY(2.5);
     doc.font("Times-Bold").fontSize(S.hdr).fillColor(BLACK).text(title.toUpperCase(), L, doc.y, { width: W });
-    const y = doc.y + 1.5;
+    const y = doc.y + 1.5 * scale;
     doc.moveTo(L, y).lineTo(R, y).lineWidth(0.8).strokeColor(BLACK).stroke();
-    doc.y = y + 3;
+    doc.y = y + 3 * scale;
   }
 
   // two text columns on one baseline (left + right-aligned right)
@@ -118,27 +122,48 @@ function renderResume(doc, r) {
   section("Education");
   const edu = Array.isArray(r.education) ? r.education : [r.education];
   edu.forEach(ed => splitRow(ed.left, ed.right, "Times-Bold", S.comp));
+}
 
+// Count how many pages the resume needs at a given scale (renders to a throwaway doc).
+function pageCountAt(r, scale) {
+  const doc = new PDFDocument({ size: "LETTER", margins: MARGINS, bufferPages: true });
+  doc.on("data", () => {});           // drain so it doesn't block
+  doc.on("error", () => {});
+  renderResume(doc, r, scale);
+  const n = doc.bufferedPageRange().count;
   doc.end();
+  return n;
+}
+
+// Largest scale (<=1) that keeps the resume on a single page.
+function fitScale(r) {
+  for (const s of [1, 0.98, 0.96, 0.94, 0.92, 0.9, 0.88, 0.86, 0.84, 0.82, 0.8]) {
+    try { if (pageCountAt(r, s) <= 1) return s; } catch { /* */ }
+  }
+  return 0.8;
 }
 
 export function streamStructuredResumePdf(res, r, downloadName) {
-  const doc = new PDFDocument({ size: "LETTER", margins: { top: 30, bottom: 26, left: 48, right: 48 } });
+  const scale = fitScale(r);
+  const doc = new PDFDocument({ size: "LETTER", margins: MARGINS });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
   doc.pipe(res);
-  renderResume(doc, r);
+  renderResume(doc, r, scale);
+  doc.end();
 }
 
 // Same resume layout, collected into a Buffer (for bundling into the Apply Kit zip).
 export function resumePdfBuffer(r) {
+  const scale = fitScale(r);
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "LETTER", margins: { top: 30, bottom: 26, left: 48, right: 48 } });
+    const doc = new PDFDocument({ size: "LETTER", margins: MARGINS });
     const chunks = [];
     doc.on("data", c => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
-    renderResume(doc, r);
+    renderResume(doc, r, scale);
+    doc.end();
   });
 }
 
