@@ -119,21 +119,64 @@ export function normalizeResume(rd) {
   return { ...BASE_RESUME, ...rd, experience };
 }
 
-// Fill ATS gaps: weave missing keywords into the resume (LLM if available,
-// else deterministic skills-injection + relevance reorder), then re-score.
-// Does NOT persist — client previews and confirms.
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+// No-LLM weave: place each missing keyword into an EXPERIENCE bullet (not the
+// skills list). Preference order: (1) next to a sibling technology already in a
+// bullet so it reads naturally ("Retrofit, OkHttp"); (2) distributed as a short
+// trailing clause on the most relevant role's bullets. Keeps bullet count fixed.
+function weaveKeywordsHeuristic(experience, missing) {
+  const exp = experience.map(e => ({ ...e, bullets: [...e.bullets] }));
+  const remaining = [];
+  for (const kw of missing) {
+    const lc = kw.toLowerCase();
+    const bucket = SKILL_BUCKETS.find(b => b.kws.some(k => k.toLowerCase() === lc));
+    const siblings = bucket ? bucket.kws.filter(k => k.toLowerCase() !== lc) : [];
+    let placed = false;
+    for (const e of exp) {
+      for (let i = 0; i < e.bullets.length; i++) {
+        const b = e.bullets[i];
+        if (b.toLowerCase().includes(lc)) { placed = true; break; }       // already there
+        const sib = siblings.find(s => new RegExp(`\\b${escapeRe(s)}\\b`, "i").test(b));
+        if (sib) {
+          e.bullets[i] = b.replace(new RegExp(`\\b${escapeRe(sib)}\\b`, "i"), m => `${m}, ${kw}`);
+          placed = true; break;
+        }
+      }
+      if (placed) break;
+    }
+    if (!placed) remaining.push(kw);
+  }
+  // distribute leftovers across roles as concise trailing clauses
+  if (remaining.length && exp.length) {
+    const per = Math.ceil(remaining.length / exp.length);
+    exp.forEach((e, ri) => {
+      const chunk = remaining.slice(ri * per, (ri + 1) * per);
+      if (chunk.length && e.bullets.length) {
+        const last = e.bullets.length - 1;
+        e.bullets[last] = e.bullets[last].replace(/\s*$/, "") + ` Additionally applied ${chunk.join(", ")}.`;
+      }
+    });
+  }
+  return exp;
+}
+
+// Fill ATS gaps: weave missing keywords into the EXPERIENCE bullets (LLM if
+// available, else deterministic weave + relevance reorder), then re-score.
+// The skills section is left unchanged. Does NOT persist — client confirms.
 export async function fillGap(job, resumeData) {
   const base = normalizeResume(resumeData || BASE_RESUME);
   const before = atsScore(jobText(job), resumeToText(base)).score;
   const { missing } = analyzeGap(job, resumeToText(base));
-  let experience = heuristicTailor(base.experience, job);
+  let experience = heuristicTailor(base.experience, job);   // relevance reorder
   let llm = false;
   if (process.env.ANTHROPIC_API_KEY && missing.length) {
     try { experience = await weaveKeywords(base.experience, job, missing); llm = true; }
-    catch (e) { console.error("[gapfix] LLM weave failed, using heuristic:", e.message); experience = heuristicTailor(base.experience, job); }
+    catch (e) { console.error("[gapfix] LLM weave failed, using heuristic:", e.message); experience = weaveKeywordsHeuristic(experience, missing); }
+  } else if (missing.length) {
+    experience = weaveKeywordsHeuristic(experience, missing);
   }
-  const skills = injectSkills(base.skills, missing);
-  const struct = { ...base, experience, skills };
+  const struct = { ...base, experience };
   const text = resumeToText(struct);
   const after = atsScore(jobText(job), text);
   return { struct, text, before, ats: after.score, present: after.matched, missingRemaining: after.missing, llm };
