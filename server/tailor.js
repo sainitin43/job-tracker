@@ -150,8 +150,8 @@ export async function tailorResumeSmart(job, profile, match) {
 
 // Build a full structured resume = base template with ONLY the experience
 // bullets tailored to the job. Other sections stay verbatim. Returns { struct, text }.
-export async function buildTailoredResume(job, profile, match) {
-  const struct = { ...BASE_RESUME, experience: await tailorExperience(job, match) };
+export async function buildTailoredResume(job, profile, match, opts = {}) {
+  const struct = { ...BASE_RESUME, experience: await tailorExperience(job, match, opts.strong) };
   return { struct, text: resumeToText(struct) };
 }
 
@@ -175,15 +175,18 @@ function heuristicTailor(experience, job) {
   }));
 }
 
-async function tailorExperience(job, match) {
+async function tailorExperience(job, match, strong = false) {
   if (!process.env.ANTHROPIC_API_KEY) return heuristicTailor(BASE_RESUME.experience, job);
   try {
+    const strongLine = strong
+      ? "\n- Make every bullet HIGHLY TECHNICAL and dense: lead with a strong action verb, name concrete tools/frameworks/protocols, and include a quantified impact (%, latency, scale) where the candidate's facts support it. Maximize ATS keyword coverage aggressively while staying truthful."
+      : "";
     const prompt =
 `Tailor ONLY the bullet points of each experience entry to the target job below, to maximize ATS keyword match. Rules:
 - Keep the SAME company, location, title, and dates for each entry.
 - Keep the SAME number of bullets per entry.
 - Stay 100% truthful: only re-emphasize, reorder, and re-word the candidate's existing facts/technologies; do NOT invent employers, tools, or experience not already present.
-- Mirror the job's terminology where it genuinely overlaps with the candidate's work.
+- Mirror the job's terminology where it genuinely overlaps with the candidate's work.${strongLine}
 Return ONLY a JSON array with this exact shape: [{"company":"","location":"","title":"","dates":"","bullets":["",...]}]
 
 TARGET JOB TITLE: ${job.title} @ ${job.company}

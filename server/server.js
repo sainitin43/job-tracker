@@ -196,6 +196,8 @@ app.put("/api/jobs/:id", auth, (req, res) => {
     date_applied: b.dateApplied ?? existing.date_applied,
     description: b.description ?? existing.description,
     resume: b.resume ?? existing.resume,
+    resume_data: b.resumeData !== undefined ? b.resumeData : existing.resume_data,
+    ats: b.ats !== undefined ? b.ats : existing.ats,
     resume_file: b.resumeFile !== undefined ? b.resumeFile : existing.resume_file,
     resume_name: b.resumeFileName ?? existing.resume_name,
     resume_type: b.resumeFileType ?? existing.resume_type,
@@ -211,6 +213,23 @@ app.delete("/api/jobs/:id", auth, (req, res) => {
   const ok = store.deleteJob(req.params.id, req.user.id);
   if (!ok) return res.status(404).json({ error: "Job not found" });
   res.json({ ok: true });
+});
+
+// Re-tailor: generate a fresh, stronger resume for this job WITHOUT saving.
+// The client previews it and confirms (PUT) to persist, or discards.
+app.post("/api/jobs/:id/retailor", auth, async (req, res) => {
+  const job = store.getJob(req.params.id, req.user.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const jobLike = { title: job.title, company: job.company, description: job.description || "" };
+  const profile = profileFor(req.user, { searchTerm: job.title });
+  const match = scoreMatch(jobLike, profile);
+  try {
+    const { struct, text } = await buildTailoredResume(jobLike, profile, match, { strong: true });
+    const ats = atsScore(jobLike.description + " " + jobLike.title, text).score;
+    res.json({ resume: text, resumeData: struct, ats, llm: !!process.env.ANTHROPIC_API_KEY });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // Download the tailored resume as a formatted PDF (always in the base layout)

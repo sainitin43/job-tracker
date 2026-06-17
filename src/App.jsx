@@ -163,6 +163,10 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
   const [applyJob, setApplyJob] = useState(null);
   const pendingRef = useRef(null);
 
+  const [retailorJob, setRetailorJob] = useState(null);
+  const [retailorResult, setRetailorResult] = useState(null);
+  const [retailorBusy, setRetailorBusy] = useState(false);
+
   const [rec, setRec] = useState(null);          // { enabled, prefs, posts, lastRefreshedAt }
   const [recLoading, setRecLoading] = useState(false);
   const [recRefreshing, setRecRefreshing] = useState(false);
@@ -325,6 +329,25 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
     if (tab === "Recruiter Posts" && rec === null) loadRecruiters();
   }, [tab, rec, loadRecruiters]);
 
+  async function reTailor(job) {
+    setRetailorJob(job); setRetailorResult(null); setRetailorBusy(true);
+    try {
+      const r = await call(`/jobs/${job.id}/retailor`, { method: "POST" });
+      setRetailorResult(r);
+    } catch (e) { alert(e.message); setRetailorJob(null); }
+    finally { setRetailorBusy(false); }
+  }
+  async function applyRetailor() {
+    if (!retailorJob || !retailorResult) return;
+    const id = retailorJob.id;
+    try {
+      const { job } = await call(`/jobs/${id}`, { method: "PUT", body: { resume: retailorResult.resume, resumeData: retailorResult.resumeData, ats: retailorResult.ats } });
+      setJobs(prev => prev.map(j => (j.id === id ? job : j)));
+    } catch (e) { alert(e.message); }
+    setRetailorJob(null); setRetailorResult(null);
+  }
+  function discardRetailor() { setRetailorJob(null); setRetailorResult(null); }
+
   function exportData() { download(`${user.firstName}-jobs.json`, JSON.stringify(jobs, null, 2), "application/json"); }
   function downloadResume(job) { if (!job?.resume) return; download(`${job.company}-${job.title}-resume.txt`, job.resume); }
   async function downloadResumePdf(job) {
@@ -449,6 +472,7 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
                       <button className="btn primary" onClick={() => openPosting(job)} disabled={!job.url}>🔗 Open & Apply</button>
                       <button className="btn" onClick={() => downloadResumePdf(job)}>⬇️ Resume PDF</button>
                       <button className="btn" onClick={() => toggleExpand(job.id, "resume")} disabled={!job.resume}>{showResume ? "Hide Resume" : "📝 Tailored Resume"}</button>
+                      <button className="btn" onClick={() => reTailor(job)}>♻️ Re-tailor</button>
                       <button className="btn" onClick={() => toggleExpand(job.id, "jd")}>{showJD ? "Hide JD" : "📄 View JD"}</button>
                       <button className="btn" onClick={() => editJob(job)}>✏️ Edit</button>
                       <button className="btn danger" onClick={() => deleteJob(job.id)}>🗑️ Delete</button>
@@ -518,6 +542,35 @@ function Tracker({ user, token, onLogout, onAuthExpired }) {
               <button onClick={closeForm}>Cancel</button>
               <button className="primary" onClick={saveJob} disabled={busy}>{busy ? "Saving…" : editingId ? "Save Changes" : "Add Job"}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {retailorJob && (
+        <div className="modalOverlay" onClick={discardRetailor}>
+          <div className="modalCard" onClick={e => e.stopPropagation()}>
+            <div className="modalHead">
+              <div>
+                <p className="eyebrow">Re-tailored · stronger & more technical</p>
+                <h2>{retailorJob.company} — {retailorJob.title}</h2>
+              </div>
+              <button className="closeBtn" onClick={discardRetailor} aria-label="Close">×</button>
+            </div>
+            {retailorBusy && <p className="emptyState">Generating a stronger, ATS-optimized resume…</p>}
+            {!retailorBusy && retailorResult && (
+              <>
+                <p className="applyQ">
+                  New ATS match: <strong>{retailorResult.ats}%</strong>
+                  {retailorResult.llm === false && <span className="findHint"> · add Anthropic credits for a full LLM rewrite</span>}
+                </p>
+                <textarea className="resumeBox" readOnly value={retailorResult.resume} />
+                <p className="applyQ">Do you want to update this job's resume with this version?</p>
+                <div className="modalActions">
+                  <button onClick={discardRetailor}>No, keep current</button>
+                  <button className="primary" onClick={applyRetailor}>Yes, update resume</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
