@@ -17,6 +17,19 @@ LinkedIn, Greenhouse, Lever, or Workday posting it can:
 3. Click **Load unpacked** and select this `extension/` folder.
 4. Pin the extension, click it, and **log in** with your Job Tracker account.
 
+## Enable "Continue with Google" (one-time setup)
+
+The popup has a **Continue with Google** button. For it to work, Google must trust this
+extension's redirect URL:
+
+1. After loading the extension, copy its ID from `chrome://extensions` (e.g. `inomeogfingihgjfjlpeplalcfajhgai`).
+2. Your redirect URL is `https://<EXTENSION_ID>.chromiumapp.org/` (keep the trailing slash).
+3. In Google Cloud Console → APIs & Services → Credentials → your OAuth client → **Authorized redirect URIs**, add that URL and save.
+
+If it isn't registered you'll get a `redirect_uri_mismatch` error. (The client ID is already
+set in `background.js` to match the web app.) Email/password login works without this step —
+but note Google-only accounts have no password, so use the Google button for those.
+
 ## Use
 
 1. Open a job posting on a supported site. A **💼 Job Tracker** button appears bottom‑right — click it to open the panel.

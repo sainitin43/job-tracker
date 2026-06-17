@@ -25,6 +25,18 @@ $("loginBtn").addEventListener("click", async () => {
   show(true, r.user);
 });
 
+$("googleBtn").addEventListener("click", async () => {
+  $("err").textContent = "";
+  $("googleBtn").disabled = true;
+  const prev = $("googleBtn").innerHTML;
+  $("googleBtn").textContent = "Opening Google…";
+  const r = await send({ type: "google" });
+  $("googleBtn").disabled = false;
+  $("googleBtn").innerHTML = prev;
+  if (r.error) { $("err").textContent = r.error; return; }
+  show(true, r.user);
+});
+
 $("password").addEventListener("keydown", e => { if (e.key === "Enter") $("loginBtn").click(); });
 $("logoutBtn").addEventListener("click", async () => { await send({ type: "logout" }); show(false); });
 $("dashBtn").addEventListener("click", () => chrome.tabs.create({ url: DASHBOARD_URL }));

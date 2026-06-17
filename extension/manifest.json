@@ -3,7 +3,7 @@
   "name": "Job Tracker Auto-Applier",
   "version": "1.0.0",
   "description": "Save & ATS-tailor job postings to your Job Tracker dashboard, then autofill applications with your details. Learns new questions as you go.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "identity"],
   "host_permissions": [
     "http://localhost:4000/*",
     "https://*.linkedin.com/*",

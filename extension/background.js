@@ -2,6 +2,7 @@
 // Content script + popup talk only to this worker (avoids page CORS issues).
 // To point at a deployed backend, change API_BASE and the host_permissions in manifest.json.
 const API_BASE = "http://localhost:4000/api";
+const GOOGLE_CLIENT_ID = "400407178471-aldf00pvmnsbo41lg8sfsvv1eip7mu0o.apps.googleusercontent.com";
 
 async function getToken() {
   const { jt_token } = await chrome.storage.local.get("jt_token");
@@ -27,6 +28,27 @@ async function api(method, path, body) {
 
 async function login(email, password) {
   const data = await api("POST", "/auth/login", { email, password });
+  await chrome.storage.local.set({ jt_token: data.token, jt_user: data.user });
+  return { user: data.user };
+}
+
+async function googleLogin() {
+  const redirectUri = chrome.identity.getRedirectURL(); // https://<extension-id>.chromiumapp.org/
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "id_token",
+    scope: "openid email profile",
+    prompt: "select_account",
+    nonce: Math.random().toString(36).slice(2) + Date.now()
+  });
+  const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
+  const redirect = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
+  if (!redirect) throw new Error("Google sign-in was cancelled");
+  const hash = redirect.split("#")[1] || redirect.split("?")[1] || "";
+  const idToken = new URLSearchParams(hash).get("id_token");
+  if (!idToken) throw new Error("No Google token returned");
+  const data = await api("POST", "/auth/google", { credential: idToken });
   await chrome.storage.local.set({ jt_token: data.token, jt_user: data.user });
   return { user: data.user };
 }
@@ -62,6 +84,7 @@ async function resumeDataUrl(path) {
 async function handle(msg) {
   switch (msg.type) {
     case "login": return login(msg.email, msg.password);
+    case "google": return googleLogin();
     case "logout": await chrome.storage.local.remove(["jt_token", "jt_user"]); return { ok: true };
     case "session": return session();
     case "api": return api(msg.method, msg.path, msg.body);

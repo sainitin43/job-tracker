@@ -34,6 +34,12 @@ button {
   cursor: pointer;
 }
 button.primary { background: linear-gradient(90deg, #6b78ff, #9a6bff); border: none; }
+button.google {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: #fff; color: #1f2330; border: none; margin-bottom: 4px;
+}
+button.google:hover { filter: brightness(0.96); }
+.or { text-align: center; font-size: 11px; color: #8b91c9; margin: 8px 0; }
 button.ghost { background: transparent; }
 button:hover { filter: brightness(1.1); }
 .who { font-size: 13px; margin: 0 0 8px; }
