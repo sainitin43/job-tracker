@@ -22,17 +22,17 @@ export const BASE_RESUME = {
     {
       company: "CVS HEALTH",
       location: "Arlington, VA",
-      title: "Full Stack Developer",
+      title: "Android Developer",
       dates: "Aug 2023 - Jul 2024",
       bullets: [
-        "Built a responsive React + TypeScript front-end for the member prescription and orders portal with Redux and React Query, improving Lighthouse performance scores by ~30%.",
-        "Developed Node.js and Java/Spring Boot REST and GraphQL APIs for eligibility, pricing, and insurance validation, reducing average response time by 25% via caching and query tuning.",
-        "Optimized PostgreSQL schemas and queries with indexing and Redis caching, cutting database latency ~20% under peak load.",
-        "Implemented OAuth 2.0 / JWT authentication with role-based access control and refresh handling, securing 100% of member-facing endpoints.",
-        "Integrated payment and insurance webhooks with idempotent, fault-tolerant workflows, reducing failed-order retries by 40%.",
-        "Established Jest, React Testing Library, and JUnit test suites in CI/CD, raising coverage and enabling 2x more frequent releases.",
-        "Containerized services with Docker on AWS (ECS/EKS) and added structured logging, metrics, and health checks, improving deployment reliability and MTTR.",
-        "Partnered with design and product in Agile sprints to ship well-documented, accessible full-stack features on schedule."
+        "Owned Android Prescription Refill and Order Placement flows in the member app, modeling UI state to survive process death, configuration changes, background execution limits, and low-memory conditions without duplicating refill requests or corrupting order state.",
+        "Modeled durable prescription and order state separately from transient UI events, preventing duplicate submissions, inconsistent refill status, and payment mismatches during lifecycle recreation and task re-launch.",
+        "Implemented lifecycle-safe navigation and state restoration with ViewModel-scoped state and explicit UI state machines, eliminating side effects from Fragment reattachment and interrupted background execution.",
+        "Integrated REST backend APIs for prescription eligibility, pricing, insurance validation, and order confirmation, validating response schemas and error contracts to prevent client-side corruption under latency or partial failures.",
+        "Built Android authentication flows with OAuth 2.0 and JWT, storing tokens in EncryptedSharedPreferences and handling refresh and expiration to keep member sessions secure across prescription and order workflows.",
+        "Structured prescription and order features into clean data, domain, and presentation layers with Hilt dependency injection, improving testability and reducing coupling across flows.",
+        "Optimized RecyclerView and screen rendering for prescription lists and order summaries by stabilizing item IDs and minimizing layout invalidations, delivering smoother scrolling and faster UI response.",
+        "Raised automated coverage with JUnit, Espresso, and Mockito across refill and checkout flows, catching regressions before release."
       ]
     },
     {
