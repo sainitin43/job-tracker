@@ -221,10 +221,19 @@
   }
 
   /* ------------------------- panel UI ------------------------- */
+  // autopilot state persists across same-tab page navigations
+  const SS = {
+    get active() { return sessionStorage.getItem("jt_auto") === "1"; },
+    set active(v) { v ? sessionStorage.setItem("jt_auto", "1") : sessionStorage.removeItem("jt_auto"); },
+    get jobId() { return sessionStorage.getItem("jt_jobid") || null; },
+    set jobId(v) { v ? sessionStorage.setItem("jt_jobid", v) : sessionStorage.removeItem("jt_jobid"); }
+  };
   let JOB = scrape();
-  let savedJobId = null;
+  let savedJobId = SS.jobId;
   let applicant = null;
   let lastUnknown = [];
+  let resumeAfterLearn = false;
+  let lastSig = null, stuck = 0;
 
   function el(tag, cls, html) { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; }
 
@@ -243,7 +252,11 @@
         <button class="jt-btn" id="jtRescrape" title="Re-read this page">⟳</button>
       </div>
       <div class="jt-row">
-        <button class="jt-btn kit" id="jtFill">⚡ Autofill application</button>
+        <button class="jt-btn primary" id="jtAuto">🤖 Auto-Apply →</button>
+        <button class="jt-btn jt-hidden" id="jtStop">■ Stop</button>
+      </div>
+      <div class="jt-row">
+        <button class="jt-btn kit" id="jtFill">⚡ Autofill this page</button>
         <button class="jt-btn" id="jtRemember" title="Save every answer on this form to reuse later">🧠 Remember form</button>
       </div>
       <div class="jt-row">
@@ -276,6 +289,7 @@
     const r = await send({ type: "api", method: "POST", path: "/jobs", body: { ...JOB, status: "Not Applied" } });
     if (r.error) { status(r.error, "err"); return; }
     savedJobId = r.job.id;
+    SS.jobId = r.job.id;
     status(`Saved · ATS ${r.job.ats != null ? r.job.ats + "%" : "—"} · resume tailored ✓`, "ok");
   });
 
@@ -287,6 +301,7 @@
       status("Filling the form…");
       const { filled, unknown } = await autofill(applicant, resumePath);
       lastUnknown = unknown;
+      resumeAfterLearn = false;
       status(`Filled ${filled} field${filled === 1 ? "" : "s"}.` + (unknown.length ? ` ${unknown.length} new question${unknown.length === 1 ? "" : "s"} below.` : " ✓"), "ok");
       renderLearn(unknown);
     } catch (e) { status(e.message, "err"); }
@@ -339,6 +354,7 @@
     applicant = r;
     status(`Learned ${Object.keys(answers).length} answer(s) ✓ filled on page.`, "ok");
     $("#jtLearn").classList.add("jt-hidden");
+    if (resumeAfterLearn && SS.active) { resumeAfterLearn = false; setTimeout(runAuto, 700); }
   }
 
   $("#jtApplied").addEventListener("click", async () => {
@@ -374,6 +390,96 @@
     applicant = r;
     status(`Remembered ${Object.keys(answers).length} answer(s) for next time ✓`, "ok");
   });
+
+  /* ------------------------- auto-apply (assisted autopilot) ------------------------- */
+  const jtAuto = $("#jtAuto"), jtStop = $("#jtStop");
+  function showStop(on) { jtStop.classList.toggle("jt-hidden", !on); jtAuto.classList.toggle("jt-hidden", on); }
+
+  jtAuto.addEventListener("click", startAuto);
+  jtStop.addEventListener("click", () => stopAuto("Auto-Apply stopped."));
+
+  async function startAuto() {
+    SS.active = true; stuck = 0; lastSig = null; resumeAfterLearn = false;
+    panel.classList.remove("jt-hidden"); fab.classList.add("jt-hidden");
+    showStop(true);
+    status("Auto-Apply started — filling this page…", "ok");
+    runAuto();
+  }
+  function stopAuto(msg) { SS.active = false; showStop(false); if (msg) status(msg, /✅|filled/.test(msg) ? "ok" : ""); }
+
+  function isRequiredUnknown(u) {
+    const el = u.el;
+    if (el && (el.required || (el.getAttribute && el.getAttribute("aria-required") === "true"))) return true;
+    return /\*|\brequired\b/i.test(u.label || "");
+  }
+  // Find the button that advances the flow. NEVER returns Submit as clickable —
+  // submit is reported so the autopilot can stop and let the user review.
+  function findAdvanceButton() {
+    const submitRe = /\b(submit application|submit|send application|finish & submit)\b/i;
+    const nextRe = /\b(next|continue|review|save and continue|save and next|proceed)\b/i;
+    const cands = Array.from(document.querySelectorAll("button, input[type=submit], input[type=button], [role=button], a")).filter(visible);
+    let next = null, submit = null;
+    for (const el of cands) {
+      if (el.disabled) continue;
+      const t = (el.value || el.textContent || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 40) continue;
+      if (submitRe.test(t)) submit = submit || el;
+      else if (nextRe.test(t)) next = next || el;
+    }
+    if (next) return { kind: "next", el: next };
+    if (submit) return { kind: "submit", el: submit };
+    return null;
+  }
+  function pageSig() {
+    const n = document.querySelectorAll("input, select, textarea").length;
+    const h = (document.querySelector("h1, h2, legend") || {}).textContent || "";
+    return location.href.split("#")[0] + "|" + n + "|" + h.replace(/\s+/g, " ").trim().slice(0, 40);
+  }
+
+  async function runAuto() {
+    if (!SS.active) return;
+    try {
+      await ensureApplicant();
+      const jid = savedJobId || SS.jobId;
+      const resumePath = jid ? `/jobs/${jid}/resume.pdf` : "/applicant/resume.pdf";
+      const { filled, unknown } = await autofill(applicant, resumePath);
+
+      const blocking = unknown.filter(isRequiredUnknown);
+      if (blocking.length) {
+        lastUnknown = unknown; resumeAfterLearn = true;
+        renderLearn(unknown);
+        status(`Paused: ${blocking.length} new required question(s). Answer below — I'll continue after you save.`, "err");
+        return;
+      }
+
+      const sig = pageSig();
+      stuck = sig === lastSig ? stuck + 1 : 0;
+      lastSig = sig;
+      if (stuck >= 2) { stopAuto("Stopped — the form isn't advancing. A field may need your input; please check the page."); return; }
+
+      const btn = findAdvanceButton();
+      if (!btn) { stopAuto(`Filled ${filled} field(s). No Next/Submit button found — please finish manually.`); return; }
+      if (btn.kind === "submit") {
+        btn.el.classList.add("jt-filled-flash");
+        try { btn.el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch { /* */ }
+        stopAuto("✅ Everything filled — review the application, then click Submit yourself.");
+        return;
+      }
+      status(`Filled ${filled} field(s). Going to the next step…`, "ok");
+      btn.el.click();
+      setTimeout(() => { if (SS.active) runAuto(); }, 2000); // SPA steps; full reloads resume on load
+    } catch (e) { stopAuto("Auto-Apply error: " + e.message); }
+  }
+
+  // Resume autopilot after a full-page navigation within the application flow.
+  if (SS.active) {
+    setTimeout(() => {
+      panel.classList.remove("jt-hidden"); fab.classList.add("jt-hidden");
+      showStop(true);
+      status("Resuming Auto-Apply…", "ok");
+      runAuto();
+    }, 1600);
+  }
 
   // Re-scrape when SPA navigations change the URL (LinkedIn/Workday).
   let lastUrl = location.href;

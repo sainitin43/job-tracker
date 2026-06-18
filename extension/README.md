@@ -4,7 +4,8 @@ A Chrome (Manifest V3) extension that connects to your Job Tracker dashboard. On
 LinkedIn, Indeed, Greenhouse, Lever, or Workday posting it can:
 
 - **Save & Tailor** — scrape the posting into your dashboard and auto-generate an ATS‑tailored resume.
-- **Autofill** — fill the application form with your details (name, email, phone, links, work authorization, EEO, etc.) and attach your tailored resume PDF.
+- **Auto-Apply** — hands-off: fills each page from your details, attaches the tailored resume, clicks Next through multi-step flows, and stops at the Submit button for you to review. It **pauses** on any genuinely new required question (you answer once, it's remembered), and it **never clicks Submit**.
+- **Autofill this page** — fill just the current page (one-shot) with your details and attach your tailored resume PDF.
 - **Learn new questions** — any question it doesn't recognize is shown in the panel; you answer once and it's **remembered** for next time (a per‑user answer bank stored in your backend).
 - **Mark Applied** — sync the job's status back to your dashboard.
 
@@ -33,10 +34,18 @@ but note Google-only accounts have no password, so use the Google button for tho
 ## Use
 
 1. Open a job posting on a supported site. A **💼 Job Tracker** button appears bottom‑right — click it to open the panel.
-2. **＋ Save & Tailor** saves the job and tailors a resume.
-3. On the application page, click **⚡ Autofill application**. Known fields fill instantly; new questions appear in the panel — answer them and hit **💾 Save & fill** to remember them.
+2. **＋ Save & Tailor** saves the job and tailors a resume (do this on the posting so Auto-Apply uses the right resume).
+3. Start the application, then click **🤖 Auto-Apply**. It fills each page, attaches your tailored resume, and advances through the steps. When it hits a new required question it pauses and shows it in the panel — answer once, hit **💾 Save & fill**, and it continues. It stops at the **Submit** button and highlights it; you review and submit.
+   - Prefer manual control? Use **⚡ Autofill this page** to fill one page at a time.
+   - **■ Stop** halts the autopilot anytime.
 4. **🧠 Remember form** snapshots everything you've typed so it learns from your own edits.
-5. Review, submit yourself, then **✓ Mark Applied**.
+5. After you submit, click **✓ Mark Applied** to sync status to your dashboard.
+
+### Auto-Apply limits (by design)
+
+- It **never submits** — the final click is always yours.
+- It **pauses instead of guessing** on unknown required questions, so it never puts made-up answers on your applications.
+- Multi-step flows that do full page reloads (Workday) are resumed automatically; very dynamic or CAPTCHA-gated steps may need you to finish manually.
 
 ## Your details
 
