@@ -1,31 +1,25 @@
 {
   "manifest_version": 3,
   "name": "Job Tracker Auto-Applier",
-  "version": "1.0.0",
-  "description": "Save & ATS-tailor job postings to your Job Tracker dashboard, then autofill applications with your details. Learns new questions as you go.",
+  "version": "1.1.0",
+  "description": "Sense any job's JD, tailor a 100% ATS resume, auto-fill the application to the Submit button, learn new questions, and sync Applied to your dashboard.",
   "permissions": ["storage", "activeTab", "scripting", "identity"],
   "host_permissions": [
     "http://localhost:4000/*",
-    "https://*.linkedin.com/*",
-    "https://*.greenhouse.io/*",
-    "https://*.lever.co/*",
-    "https://*.myworkdayjobs.com/*",
-    "https://*.indeed.com/*"
+    "http://localhost:5173/*"
   ],
   "action": { "default_popup": "popup.html", "default_title": "Job Tracker Auto-Applier" },
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
-      "matches": [
-        "https://*.linkedin.com/*",
-        "https://*.greenhouse.io/*",
-        "https://*.lever.co/*",
-        "https://*.myworkdayjobs.com/*",
-        "https://*.indeed.com/*"
-      ],
+      "matches": ["http://*/*", "https://*/*"],
       "js": ["content.js"],
       "css": ["content.css"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": false
     }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["content.css"], "matches": ["<all_urls>"] }
   ]
 }

@@ -81,6 +81,24 @@ async function resumeDataUrl(path) {
   return { dataUrl: "data:application/pdf;base64," + btoa(bin), filename: (m && m[1]) || "resume.pdf" };
 }
 
+// POST a JD and get back a freshly tailored (100% ATS) resume PDF as a data URL.
+async function tailorResume(job) {
+  const token = await getToken();
+  const res = await fetch(API_BASE + "/ai/resume.pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+    body: JSON.stringify(job || {})
+  });
+  if (!res.ok) throw new Error("Tailor failed (" + res.status + ")");
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const cd = res.headers.get("content-disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  return { dataUrl: "data:application/pdf;base64," + btoa(bin), filename: (m && m[1]) || "resume.pdf" };
+}
+
 async function handle(msg) {
   switch (msg.type) {
     case "login": return login(msg.email, msg.password);
@@ -90,6 +108,7 @@ async function handle(msg) {
     case "session": return session();
     case "api": return api(msg.method, msg.path, msg.body);
     case "resume": return resumeDataUrl(msg.path);
+    case "tailorResume": return tailorResume(msg.job);
     default: throw new Error("Unknown message: " + msg.type);
   }
 }

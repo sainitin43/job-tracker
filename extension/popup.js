@@ -46,5 +46,17 @@ $("googleBtn").addEventListener("click", async () => {
 $("password").addEventListener("keydown", e => { if (e.key === "Enter") $("loginBtn").click(); });
 $("logoutBtn").addEventListener("click", async () => { await send({ type: "logout" }); show(false); });
 $("dashBtn").addEventListener("click", () => chrome.tabs.create({ url: DASHBOARD_URL }));
+$("openBtn").addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return;
+  try { await chrome.tabs.sendMessage(tab.id, { type: "openPanel" }); window.close(); }
+  catch (e) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+      await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["content.css"] });
+      await chrome.tabs.sendMessage(tab.id, { type: "openPanel" }); window.close();
+    } catch (e2) { $("openBtn").textContent = "Reload the job page, then retry"; }
+  }
+});
 
 refresh();

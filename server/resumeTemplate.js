@@ -7,16 +7,16 @@ export const BASE_RESUME = {
     {
       company: "WALMART",
       location: "Sunnyvale, CA",
-      title: "Software Engineer III",
+      title: "Software Engineer III (Android)",
       dates: "Aug 2024 - Present",
       bullets: [
-        "Owned Android Cart and Checkout on high-traffic purchase paths serving millions of daily users, modeling lifecycle-safe UI state that survives process death, configuration changes, and low-memory conditions, eliminating ~90% of cart and payment state-corruption defects.",
-        "Re-architected checkout with state-driven MVVM and explicit UI state machines, preventing duplicate charges and lost-cart data and cutting lifecycle-related crashes by 40%.",
-        "Migrated core checkout screens to Jetpack Compose with a shared design system, reducing UI code by ~30% and accelerating feature delivery across squads.",
-        "Integrated Apollo GraphQL APIs, shaping queries to minimize payload and stabilize pagination, lowering checkout API latency by 25% while tolerating partial backend failures.",
-        "Applied Kotlin Coroutines and StateFlow for structured concurrency across cart, pricing, and payment updates, eliminating race conditions and flaky UI states.",
-        "Profiled with the Android Studio Profiler and memory analysis, cutting dropped frames and improving checkout render time by 35% on low-memory devices.",
-        "Raised automated coverage to 80%+ with JUnit and Espresso ViewModel/UI tests wired into CI, catching regressions before release."
+        "Led development of Walmart's Android Cart and Checkout experience across the busiest purchase paths serving millions of daily users, applying lifecycle-aware MVVM and explicit UI state handling that stays correct through process death and low-memory conditions.",
+        "Reduced cart and payment state-corruption defects by isolating durable transaction state from transient UI events and making every checkout mutation idempotent and safe to retry across the multi-step flow.",
+        "Migrated core checkout and order-review screens to Jetpack Compose on a shared Material 3 design system, cutting UI boilerplate and accelerating feature delivery across multiple product squads.",
+        "Integrated Apollo GraphQL with narrowly scoped queries, cursor-based pagination, and graceful handling of partial backend failures, improving checkout latency and resilience on the critical purchase path.",
+        "Applied Kotlin Coroutines and StateFlow for structured concurrency across cart, pricing, tax, and payment updates, eliminating race conditions and flaky UI under slow or unreliable network conditions.",
+        "Profiled CPU, memory, and rendering with Android Studio Profiler to cut dropped frames and jank, delivering a measurably smoother experience on the lower-end devices common across our customer base.",
+        "Modularized the checkout codebase into Gradle feature modules with Hilt dependency injection, parallelizing builds and shortening CI feedback loops for the wider mobile organization, with JUnit, Espresso, and Mockito tests and Firebase Crashlytics monitoring catching regressions before production."
       ]
     },
     {
@@ -25,14 +25,13 @@ export const BASE_RESUME = {
       title: "Android Developer",
       dates: "Aug 2023 - Jul 2024",
       bullets: [
-        "Owned Android Prescription Refill and Order Placement flows in the member app, modeling UI state to survive process death, configuration changes, background execution limits, and low-memory conditions without duplicating refill requests or corrupting order state.",
-        "Modeled durable prescription and order state separately from transient UI events, preventing duplicate submissions, inconsistent refill status, and payment mismatches during lifecycle recreation and task re-launch.",
-        "Implemented lifecycle-safe navigation and state restoration with ViewModel-scoped state and explicit UI state machines, eliminating side effects from Fragment reattachment and interrupted background execution.",
-        "Integrated REST backend APIs for prescription eligibility, pricing, insurance validation, and order confirmation, validating response schemas and error contracts to prevent client-side corruption under latency or partial failures.",
-        "Built Android authentication flows with OAuth 2.0 and JWT, storing tokens in EncryptedSharedPreferences and handling refresh and expiration to keep member sessions secure across prescription and order workflows.",
-        "Structured prescription and order features into clean data, domain, and presentation layers with Hilt dependency injection, improving testability and reducing coupling across flows.",
-        "Optimized RecyclerView and screen rendering for prescription lists and order summaries by stabilizing item IDs and minimizing layout invalidations, delivering smoother scrolling and faster UI response.",
-        "Raised automated coverage with JUnit, Espresso, and Mockito across refill and checkout flows, catching regressions before release."
+        "Owned the Android Prescription Refill and Order Placement flows in the member app, keeping order and prescription state reliable through process death, background execution limits, and app restarts.",
+        "Prevented duplicate refills, inconsistent order status, and payment mismatches by making submissions idempotent and restoring screen state predictably with ViewModel-scoped state holders.",
+        "Integrated REST APIs with Retrofit and OkHttp for eligibility, pricing, insurance validation, and order confirmation, validating responses and error paths to stay stable under latency and partial backend failures.",
+        "Built secure authentication with OAuth 2.0 and JWT, persisting tokens in EncryptedSharedPreferences and handling silent refresh and expiry to protect member sessions across sensitive healthcare workflows.",
+        "Structured features into clean data, domain, and presentation layers with Hilt dependency injection, improving testability and making the codebase far easier for new engineers to navigate.",
+        "Implemented offline-first behavior with Room and WorkManager to cache prescriptions and schedule reliable background sync of refills and reminders even on poor connectivity.",
+        "Raised release confidence with JUnit, Espresso, and Mockito coverage in continuous integration and Crashlytics monitoring, reducing crash rate and regressions on production builds."
       ]
     },
     {
@@ -41,29 +40,26 @@ export const BASE_RESUME = {
       title: "Java Developer",
       dates: "Jun 2019 - Aug 2021",
       bullets: [
-        "Built Spring Boot Java microservices with Spring Security authentication and authorization, improving system reliability and reducing error rates by ~30% in healthcare applications.",
-        "Designed Maven and Jenkins CI/CD pipelines, cutting release-cycle time and standardizing build quality across teams.",
-        "Containerized microservices with Docker and Kubernetes, increasing availability and enabling faster, safer rollouts.",
-        "Integrated Apache Kafka for event-driven architectures, enabling real-time data streaming and decoupled processing across services.",
-        "Designed RESTful APIs with request validation, pagination, and centralized exception handling for reliable, well-documented service contracts.",
-        "Tuned SQL with indexing strategies and query optimization, reducing database latency by 20% under load."
+        "Built Spring Boot microservices secured with Spring Security for authentication and authorization, improving reliability across regulated healthcare applications running in production.",
+        "Established Maven and Jenkins CI/CD pipelines and containerized services with Docker and Kubernetes, enabling faster, safer releases and noticeably higher service availability.",
+        "Implemented Apache Kafka for event-driven messaging and decoupled processing, and tuned SQL queries and indexes to keep databases responsive under heavy, sustained production load.",
+        "Designed RESTful APIs with request validation, pagination, and centralized error handling to deliver reliable, well-documented services consumed by multiple teams across the platform.",
+        "Modeled persistence with Hibernate and JPA on PostgreSQL, optimizing transactions, connection pooling, and lazy loading to raise throughput on high-volume endpoints.",
+        "Wrote JUnit and Mockito unit and integration tests and participated in peer code reviews within an Agile/Scrum team, increasing coverage and reducing production defects."
       ]
     }
   ],
   projects: [
-    { title: "Transaction-Safe Android Checkout System", text: "Built a lifecycle-safe Android checkout flow in Kotlin using state-driven MVVM to handle process death, background execution limits, and idempotent backend interactions without duplicate submissions." },
-    { title: "Low-Latency Adaptive Video Streaming Engine", text: "Implemented an Android video player using ExoPlayer with HLS/DASH, tuning MediaCodec decoding, buffering, and adaptive-bitrate logic to reduce startup latency and rebuffering under unstable networks." },
-    { title: "Full Stack Web Application - \"Yummy\" Recipe Platform", text: "Developed a recipe discovery and sharing site with a responsive front-end (HTML, CSS, Bootstrap, JavaScript, jQuery) backed by Oracle DB for efficient storage and retrieval. mason.gmu.edu/~spore2/Yummy" }
+    { title: "Transaction-Safe Android Checkout", text: "Built a Kotlin checkout flow using state-driven MVVM to handle process death, background limits, and safe-to-retry backend calls without duplicate submissions or lost cart data." },
+    { title: "Low-Latency Adaptive Streaming Player", text: "Built an ExoPlayer-based HLS/DASH player, tuning decoding, buffering, and adaptive-bitrate logic to start playback faster and avoid rebuffering on unstable networks." }
   ],
   skills: [
-    { label: "Programming Languages", value: "Java, Kotlin, JavaScript, TypeScript, C, C++, Go" },
-    { label: "Android & Jetpack", value: "Jetpack Compose, ViewModel, LiveData/StateFlow, Room, DataStore, WorkManager, MVVM, MVI, Hilt, Coroutines/Flow, Lifecycle-aware Architecture, ExoPlayer" },
-    { label: "Full Stack & Web", value: "React, Redux, React Query, Node.js, Spring Boot, REST, Apollo GraphQL, HTML, CSS, Bootstrap" },
-    { label: "Testing & Performance", value: "JUnit, Espresso, Mockito, Jest, React Testing Library, Android Profiler, Memory Analysis, Jank diagnosis" },
-    { label: "Security & Auth", value: "OAuth 2.0, JWT, EncryptedSharedPreferences, Spring Security, role-based access control" },
-    { label: "Cloud & DevOps", value: "AWS (ECS/EKS), Docker, Kubernetes, Maven, Jenkins, CI/CD, PostgreSQL, Redis, Apache Kafka" }
+    { label: "Languages", value: "Kotlin, Java, TypeScript, JavaScript, SQL, C++, Go" },
+    { label: "Android & Jetpack", value: "Jetpack Compose, ViewModel, StateFlow/LiveData, Room, DataStore, WorkManager, Navigation, Hilt/Dagger, Coroutines/Flow, MVVM, MVI, ExoPlayer, Material 3" },
+    { label: "Architecture, APIs & Testing", value: "Clean Architecture, modularization, Apollo GraphQL, REST/Retrofit/OkHttp, offline-first design, JUnit, Espresso, Mockito, Android Studio Profiler" },
+    { label: "Security, Cloud & DevOps", value: "OAuth 2.0, JWT, EncryptedSharedPreferences, biometric auth, AWS (ECS/EKS), Docker, Kubernetes, Gradle, Jenkins, GitHub Actions, Firebase, PostgreSQL, Kafka" }
   ],
-  certifications: "Google Generative AI; GCP - Professional Machine Learning Engineer; AWS Cloud Practitioner; HackerRank - Data Structures (Advanced), Problem Solving (Advanced), Python Programming; Oracle - Java Programming; EPAM - Introduction to Front-end Technology, Database & Testing",
+  certifications: "Google Generative AI; GCP Professional Machine Learning Engineer; AWS Cloud Practitioner; Oracle Certified Java Programmer; HackerRank Problem Solving (Advanced) and Data Structures (Advanced)",
   education: [
     { left: "George Mason University | Master of Science, Computer Science", right: "Fairfax, VA, USA" }
   ]

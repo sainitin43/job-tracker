@@ -1,62 +1,78 @@
-#jt-panel {
-  position: fixed;
-  bottom: 18px;
-  right: 18px;
-  width: 320px;
-  max-height: 78vh;
-  overflow: auto;
-  z-index: 2147483647;
-  background: #0b1020;
-  color: #e7e9f3;
-  border: 1px solid #2a335c;
-  border-radius: 14px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
-  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 13px;
-}
-#jt-panel * { box-sizing: border-box; }
-.jt-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 11px 13px; border-bottom: 1px solid #1c2444;
-}
-.jt-head .jt-title { font-size: 11px; letter-spacing: .12em; color: #8b91c9; }
-.jt-head .jt-x { cursor: pointer; color: #8b91c9; font-size: 16px; background: none; border: none; }
-.jt-body { padding: 12px 13px; }
-.jt-job { font-weight: 600; line-height: 1.35; margin-bottom: 2px; }
-.jt-sub { color: #8b91c9; font-size: 12px; margin-bottom: 10px; }
-.jt-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-#jt-panel button.jt-btn {
-  flex: 1 1 auto;
-  padding: 9px 10px;
-  border: 1px solid #2a335c;
-  border-radius: 9px;
-  background: #141a31;
-  color: #e7e9f3;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-#jt-panel button.jt-btn.primary { background: linear-gradient(90deg, #6b78ff, #9a6bff); border: none; }
-#jt-panel button.jt-btn.kit { border-color: rgba(29,158,117,.5); color: #7ee0bf; background: rgba(29,158,117,.12); }
-#jt-panel button.jt-btn:disabled { opacity: .55; cursor: default; }
-.jt-status { font-size: 12px; color: #9aa0d6; min-height: 16px; margin: 4px 0 0; }
-.jt-status.ok { color: #86efac; }
-.jt-status.err { color: #ff9b9b; }
-.jt-learn { margin-top: 10px; border-top: 1px solid #1c2444; padding-top: 10px; }
-.jt-learn h4 { margin: 0 0 4px; font-size: 12.5px; }
-.jt-learn p.note { margin: 0 0 8px; font-size: 11.5px; color: #8b91c9; }
-.jt-q { margin-bottom: 8px; }
-.jt-q label { display: block; font-size: 11.5px; color: #c7cbf0; margin-bottom: 3px; }
-.jt-q input, .jt-q select, .jt-q textarea {
-  width: 100%; padding: 7px 8px; background: #141a31; border: 1px solid #2a335c;
-  border-radius: 7px; color: #e7e9f3; font-size: 12.5px;
-}
-.jt-fab {
-  position: fixed; bottom: 18px; right: 18px; z-index: 2147483646;
-  background: linear-gradient(90deg, #6b78ff, #9a6bff); color: #fff;
-  border: none; border-radius: 999px; padding: 11px 16px; font-weight: 700;
-  font-size: 13px; cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,.45);
-  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-.jt-hidden { display: none !important; }
-.jt-filled-flash { outline: 2px solid #6b78ff !important; transition: outline .4s; }
+/* Job Applier — minimal full-height side panel */
+#jt-launch{position:fixed;right:20px;bottom:20px;z-index:2147483646;width:48px;height:48px;border-radius:14px;border:none;cursor:pointer;
+  background:#0a0a0c;color:#fff;font-size:19px;display:grid;place-items:center;box-shadow:0 8px 26px rgba(0,0,0,.32);
+  font-family:Inter,-apple-system,'Segoe UI',sans-serif;transition:transform .25s cubic-bezier(.16,1,.3,1)}
+#jt-launch:hover{transform:translateY(-2px)}
+
+#jt-panel{position:fixed;top:0;right:0;bottom:0;width:360px;max-width:calc(100vw - 24px);z-index:2147483647;display:flex;flex-direction:column;
+  background:#0b0b0d;color:#ededf0;border-left:1px solid rgba(255,255,255,.07);box-shadow:-24px 0 60px rgba(0,0,0,.4);
+  font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;transform:translateX(100%);transition:transform .45s cubic-bezier(.16,1,.3,1)}
+#jt-panel.open{transform:none}
+#jt-panel *{box-sizing:border-box}
+#jt-panel ::-webkit-scrollbar{width:6px}#jt-panel ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:6px}
+
+#jt-panel .ph{padding:18px 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid rgba(255,255,255,.07)}
+#jt-panel .logo{width:28px;height:28px;border-radius:8px;background:#fff;color:#0b0b0d;display:grid;place-items:center;font-weight:800;font-size:13px}
+#jt-panel .t{font-weight:600;font-size:14px;letter-spacing:-.01em}
+#jt-panel .s{font-size:11px;color:#86868f;margin-top:2px;display:flex;align-items:center;gap:5px}
+#jt-panel .s.live{color:#37d07a}
+#jt-panel .s.live i{width:5px;height:5px;border-radius:50%;background:#37d07a;display:inline-block;animation:jtbl 1.3s infinite}
+@keyframes jtbl{50%{opacity:.3}}
+#jt-panel .av{margin-left:auto;width:28px;height:28px;border-radius:50%;background:#1c1c22;display:grid;place-items:center;font-size:11px;font-weight:600;color:#ededf0}
+#jt-panel .cl{width:26px;height:26px;border-radius:7px;border:none;display:grid;place-items:center;color:#86868f;cursor:pointer;background:none;font-size:15px}
+#jt-panel .cl:hover{color:#fff}
+
+#jt-panel .scroll{flex:1;overflow:auto;padding:18px 20px 8px}
+#jt-panel .sectl{font-size:10.5px;font-weight:600;letter-spacing:.06em;color:#5c5c66;text-transform:uppercase;margin:22px 0 10px}
+#jt-panel .sectl:first-child{margin-top:0}
+
+#jt-panel .hero{display:flex;gap:13px;align-items:center}
+#jt-panel .jlogo{width:42px;height:42px;border-radius:11px;background:#fff;display:grid;place-items:center;overflow:hidden;flex-shrink:0;font-weight:800;color:#0b0b0d;font-size:17px}
+#jt-panel .jlogo img{width:100%;height:100%;object-fit:contain;padding:7px}
+#jt-panel .hero h3{font-size:15px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
+#jt-panel .hero .co{font-size:12.5px;color:#86868f;margin-top:3px}
+#jt-panel .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+#jt-panel .tag{font-size:11px;font-weight:500;padding:4px 10px;border-radius:980px;background:rgba(255,255,255,.06);color:#a7a7b0}
+
+#jt-panel .atscard{display:flex;align-items:center;gap:13px;margin-top:18px;padding-top:18px;border-top:1px solid rgba(255,255,255,.07)}
+#jt-panel .ring{--p:100;width:44px;height:44px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;position:relative;background:conic-gradient(#37d07a calc(var(--p)*1%),rgba(255,255,255,.09) 0)}
+#jt-panel .ring::after{content:'';position:absolute;inset:3.5px;border-radius:50%;background:#0b0b0d}
+#jt-panel .ring b{position:relative;z-index:2;font-size:12.5px;font-weight:700}
+#jt-panel .atscard .ti{font-size:12.5px;font-weight:600}#jt-panel .atscard .d{font-size:11.5px;color:#86868f;margin-top:2px}
+
+#jt-panel .progwrap{height:3px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin:0 0 14px}
+#jt-panel .prog{height:100%;border-radius:3px;background:#37d07a;width:0;transition:width .5s cubic-bezier(.16,1,.3,1)}
+#jt-panel .steps .step{display:flex;gap:12px;padding:7px 0;position:relative}
+#jt-panel .step .ico{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:10px;flex-shrink:0;border:1.5px solid rgba(255,255,255,.14);color:#86868f;background:#0b0b0d;z-index:1}
+#jt-panel .step.done .ico{background:#37d07a;border-color:#37d07a;color:#04140b}
+#jt-panel .step.active .ico{border-color:#fff;color:#fff}
+#jt-panel .step .tx{font-size:12.5px;font-weight:500;padding-top:1px}#jt-panel .step.pending .tx{color:#5c5c66;font-weight:400}
+#jt-panel .step .tx small{display:block;font-size:10.5px;color:#86868f;font-weight:400;margin-top:1px}
+#jt-panel .step::before{content:'';position:absolute;left:9.5px;top:26px;bottom:-7px;width:1px;background:rgba(255,255,255,.08)}
+#jt-panel .step:last-child::before{display:none}#jt-panel .step.done::before{background:#37d07a}
+
+#jt-panel .learn{margin-top:8px}
+#jt-panel .learn .lh{font-size:11px;font-weight:600;color:#e0a23a}
+#jt-panel .learn .q{font-size:13px;font-weight:500;margin:11px 0 8px;line-height:1.4}
+#jt-panel .opts{display:flex;gap:7px;flex-wrap:wrap}
+#jt-panel .opt{font-size:11.5px;padding:6px 12px;border-radius:980px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);cursor:pointer;color:#ededf0}
+#jt-panel .opt.sel{background:#fff;border-color:#fff;color:#0b0b0d}
+#jt-panel .learn input{width:100%;margin-top:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:9px 12px;color:#ededf0;font-family:inherit;font-size:12.5px;outline:none}
+#jt-panel .learn input:focus{border-color:rgba(255,255,255,.3)}
+
+#jt-panel .foot{padding:14px 20px;border-top:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;gap:9px}
+#jt-panel .pillstat{display:flex;gap:16px;justify-content:center;margin-bottom:2px}
+#jt-panel .pillstat .b{text-align:center}
+#jt-panel .pillstat .v{font-size:16px;font-weight:700}#jt-panel .pillstat .l{font-size:9.5px;color:#86868f;margin-top:1px;letter-spacing:.04em}
+#jt-panel .btn{padding:12px;border-radius:11px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:transparent;color:#ededf0;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;transition:.2s cubic-bezier(.16,1,.3,1)}
+#jt-panel .btn:hover{background:rgba(255,255,255,.06)}
+#jt-panel .btn.primary{background:#fff;border-color:#fff;color:#0b0b0d}
+#jt-panel .btn.primary:hover{background:#e9e9ee}
+#jt-panel .btn.stop{color:#ff8a8a;border-color:rgba(255,90,90,.25)}
+#jt-panel .row2{display:flex;gap:9px}#jt-panel .row2 .btn{flex:1;font-size:12px;padding:11px}
+#jt-panel .safe{font-size:10px;color:#5c5c66;text-align:center}
+#jt-panel .toast{background:rgba(55,208,122,.1);border:1px solid rgba(55,208,122,.25);color:#7fe6a8;border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:8px}
+#jt-panel .signin{padding:30px 8px;text-align:center}
+#jt-panel .signin h3{font-size:16px;font-weight:600;margin-bottom:8px}
+#jt-panel .signin p{font-size:12.5px;color:#86868f;margin-bottom:16px;line-height:1.55}
+.jt-hl-submit{outline:2px solid #37d07a !important;outline-offset:3px !important;box-shadow:0 0 0 5px rgba(55,208,122,.2) !important}

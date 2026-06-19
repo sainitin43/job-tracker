@@ -31,7 +31,7 @@ app.use(cors({
 app.use(express.json({ limit: "12mb" })); // allow base64 resume files
 
 const now = () => new Date().toISOString();
-const today = () => now().slice(0, 10);
+const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
 function signToken(user) {
   return jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, { expiresIn: "30d" });
@@ -85,7 +85,8 @@ function rowToJob(r) {
     score: typeof r.score === "number" ? r.score : null,
     ats,
     source: r.source || "",
-    datePosted: r.date_posted || ""
+    datePosted: r.date_posted || "",
+    addedAt: r.created_at || r.date_added || ""
   };
 }
 
@@ -341,22 +342,31 @@ function defaultApplicant(user) {
   const lastName = tokens.length > 1 ? tokens[tokens.length - 1] : "";
   const recent = BASE_RESUME.experience[0] || {};
   return {
-    firstName, lastName, fullName,
-    email: user.email || emailFromResume,
-    phone,
-    linkedin: linkedin ? (linkedin.startsWith("http") ? linkedin : "https://" + linkedin) : "",
+    firstName: "Sai Nithin", lastName: "P", fullName: "Sai Nithin P", preferredName: "",
+    email: "mailmenithin1317@gmail.com",
+    phone: phone || "(804) 484-5154",
+    linkedin: "https://linkedin.com/in/nithin-1317-p",
     github: "", website: "",
-    address: "", city, state, country: "United States", zip: "",
-    location: loc,
-    currentCompany: recent.company || "",
-    currentTitle: recent.title || "",
-    yearsExperience: "5",
+    address: "2540 Baton Rogue Dr", mailingAddress: "2540 Baton Rogue Dr, San Jose, CA 95133",
+    city: "San Jose", state: "CA", zip: "95133", country: "United States",
+    location: "San Jose, CA",
+    currentCompany: recent.company || "Walmart",
+    currentTitle: recent.title || "Software Engineer III",
+    yearsExperience: "5", totalExperienceYears: "5", androidExperienceYears: "2.5",
     workAuthorized: "Yes",
-    requiresSponsorship: "No",
+    requiresSponsorship: "Yes",
     willingToRelocate: "Yes",
+    workArrangements: ["Onsite", "Hybrid", "Remote"],
     noticePeriod: "2 weeks",
-    salaryExpectation: "",
-    gender: "", ethnicity: "", veteranStatus: "", disabilityStatus: "", pronouns: ""
+    salaryExpectation: "$130,000",
+    howHeard: "LinkedIn",
+    pronoun: "He/Him",
+    demographics: {
+      gender: "Male", transgender: "No", sexualOrientation: "Heterosexual / Straight",
+      hispanicLatino: "No", race: "Asian",
+      veteranStatus: "Not a Veteran", disabilityStatus: "No, I do not have a disability",
+      disability: "No"
+    }
   };
 }
 function applicantPayload(user) {
@@ -370,6 +380,97 @@ app.put("/api/applicant", auth, (req, res) => {
   if (b.answers && typeof b.answers === "object") store.mergeApplicantAnswers(req.user.id, b.answers);
   res.json(applicantPayload(req.user));
 });
+// Claude agent: answer one or more unknown application questions using the
+// applicant's profile + saved answer bank, and persist newly learned answers.
+app.post("/api/ai/answer", auth, async (req, res) => {
+  const b = req.body || {};
+  const questions = Array.isArray(b.questions) ? b.questions : (b.question ? [b] : []);
+  if (!questions.length) return res.status(400).json({ error: "No questions provided" });
+  const { profile, answers } = applicantPayload(req.user);
+  const ctx = { profile, answers, demographics: profile.demographics || {}, job: b.job || {} };
+
+  // 1) Try the saved answer bank first (exact-ish key match).
+  const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const bank = Object.entries(answers || {});
+  function fromBank(q) {
+    const nq = norm(q);
+    let best = null;
+    for (const [k, v] of bank) {
+      const nk = norm(k);
+      if (!nk) continue;
+      if (nq.includes(nk) || nk.includes(nq)) { if (!best || nk.length > norm(best[0]).length) best = [k, v]; }
+    }
+    return best ? best[1] : null;
+  }
+
+  const out = {};
+  const ask = [];
+  for (const q of questions) {
+    const text = q.question || q.q || "";
+    const hit = fromBank(text);
+    if (hit != null) out[text] = hit;
+    else ask.push(q);
+  }
+
+  // 2) For the rest, ask Claude (if configured); else best-effort heuristic.
+  if (ask.length && process.env.ANTHROPIC_API_KEY) {
+    try {
+      const prompt =
+`You are filling a job application for this candidate. Use ONLY the candidate's real data; never invent employment, degrees, or numbers not supported below. For each question return the single best short answer to type or select. If the field offers options, choose the exact option text that fits. Be concise.
+
+CANDIDATE PROFILE (JSON):
+${JSON.stringify(ctx, null, 1)}
+
+QUESTIONS (JSON array; each has question, optional type, optional options):
+${JSON.stringify(ask, null, 1)}
+
+Return ONLY a JSON object mapping each question string to its answer string. No commentary.`;
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6", max_tokens: 1200, messages: [{ role: "user", content: prompt }] })
+      });
+      if (r.ok) {
+        const data = await r.json();
+        const raw = (data.content?.[0]?.text || "").trim().replace(/^```json\s*|\s*```$/g, "");
+        const parsed = JSON.parse(raw);
+        for (const [k, v] of Object.entries(parsed)) if (v != null && String(v).trim()) out[k] = String(v).trim();
+      }
+    } catch (e) { console.error("[ai/answer]", e.message); }
+  }
+
+  // 3) Persist any newly resolved answers back into the bank ("training").
+  const learned = {};
+  for (const [k, v] of Object.entries(out)) if (fromBank(k) == null) learned[k] = v;
+  if (Object.keys(learned).length) store.mergeApplicantAnswers(req.user.id, learned);
+
+  res.json({ answers: out, learned: Object.keys(learned) });
+});
+
+// Ad-hoc tailoring for ANY job (e.g. a random application page the extension is on,
+// with no saved job). Builds a resume tailored + forced to 100% ATS for the given JD.
+function jdFromBody(b) { return { title: b.title || "", company: b.company || "", description: b.description || b.jd || "" }; }
+app.post("/api/ai/tailor", auth, async (req, res) => {
+  const job = jdFromBody(req.body || {});
+  const profile = profileFor(req.user, { searchTerm: job.title });
+  const match = scoreMatch(job, profile);
+  try {
+    const { struct, text } = await buildTailoredResume(job, profile, match, { strong: true });
+    const ats = atsScore((job.description || "") + " " + (job.title || ""), text).score;
+    res.json({ ats, resume: text, resumeData: struct });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.post("/api/ai/resume.pdf", auth, async (req, res) => {
+  const job = jdFromBody(req.body || {});
+  const profile = profileFor(req.user, { searchTerm: job.title });
+  const match = scoreMatch(job, profile);
+  const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
+  try {
+    const { struct } = await buildTailoredResume(job, profile, match, { strong: true });
+    streamStructuredResumePdf(res, normalizeResume(struct), `${safe(req.user.first_name || "Nithin")}-${safe(job.company || "role")}-resume.pdf`);
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
 // A default resume PDF for autofill before a specific job is saved.
 app.get("/api/applicant/resume.pdf", auth, (req, res) => {
   const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
@@ -441,6 +542,82 @@ async function findAndCreateJobs(user) {
     store.setRefreshing(user.id, false);
   }
 }
+
+// LIVE sourcing from public ATS job APIs (Greenhouse + Lever): real postings with
+// full JD, the exact apply URL, and a job id. No static/mock data.
+const GH_BOARDS = { xai:["xAI","x.ai"], anthropic:["Anthropic","anthropic.com"], thenewyorktimes:["The New York Times","nytimes.com"], oura:["Oura","ouraring.com"], monzo:["Monzo","monzo.com"], angi:["Angi","angi.com"], versaterm:["Versaterm","versaterm.com"], robinhood:["Robinhood","robinhood.com"], reddit:["Reddit","reddit.com"], plaid:["Plaid","plaid.com"], affirm:["Affirm","affirm.com"], lyft:["Lyft","lyft.com"], doordash:["DoorDash","doordash.com"], intercom:["Intercom","intercom.com"], coinbase:["Coinbase","coinbase.com"], dropbox:["Dropbox","dropbox.com"], gusto:["Gusto","gusto.com"], strava:["Strava","strava.com"], faire:["Faire","faire.com"] };
+const LEVER_BOARDS = { matchgroup:["Match Group","matchgroup.com"], wealthfront:["Wealthfront","wealthfront.com"], bumbleinc:["Bumble","bumble.com"], finix:["Finix","finix.com"], plaid:["Plaid","plaid.com"] };
+function stripHtml(s){
+  return String(s||"")
+    // 1) decode HTML entities FIRST (Greenhouse content is entity-encoded)
+    .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&").replace(/&nbsp;/g," ")
+    .replace(/&#39;|&rsquo;|&apos;/g,"'").replace(/&quot;|&ldquo;|&rdquo;/g,'"').replace(/&#8211;|&ndash;/g,"-").replace(/&#?\w+;/g," ")
+    // 2) turn block tags into line breaks, then strip all remaining tags
+    .replace(/<\/(p|div|li|h[1-6]|ul|ol|br)[^>]*>/gi,"\n").replace(/<li[^>]*>/gi,"\n• ").replace(/<[^>]+>/g," ")
+    .replace(/\n{3,}/g,"\n\n").replace(/[ \t]{2,}/g," ").trim();
+}
+function wantTitle(t, cat){ t=(t||"").toLowerCase(); if(cat==="java") return /(java|spring|backend)/.test(t) && !/(android|kotlin|ios|frontend|front-end|data|ml)/.test(t); return /(android|kotlin)/.test(t); }
+async function ghJobs(slug,name,domain,cat){ try{
+  const r=await fetch(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs?content=true`,{signal:AbortSignal.timeout(7000)});
+  if(!r.ok) return []; const d=await r.json();
+  return (d.jobs||[]).filter(j=>wantTitle(j.title,cat)).map(j=>({company:name,domain,title:j.title,location:(j.location&&j.location.name)||"Remote",url:j.absolute_url,jobId:String(j.id),source:"greenhouse",datePosted:(j.updated_at||"").slice(0,10),description:stripHtml(j.content).slice(0,4000)}));
+}catch(e){return [];} }
+async function leverJobs(slug,name,domain,cat){ try{
+  const r=await fetch(`https://api.lever.co/v0/postings/${slug}?mode=json`,{signal:AbortSignal.timeout(7000)});
+  if(!r.ok) return []; const d=await r.json();
+  return (Array.isArray(d)?d:[]).filter(j=>wantTitle(j.text,cat)).map(j=>({company:name,domain,title:j.text,location:(j.categories&&j.categories.location)||"Remote",url:j.hostedUrl||j.applyUrl,jobId:String(j.id),source:"lever",datePosted:j.createdAt?new Date(j.createdAt).toISOString().slice(0,10):"",description:stripHtml(j.descriptionPlain||j.description).slice(0,4000)}));
+}catch(e){return [];} }
+function domainFromName(co){ return String(co||"").toLowerCase().replace(/[^a-z0-9]/g,"") + ".com"; }
+function withTimeout(p, ms){ return Promise.race([p, new Promise(r=>setTimeout(()=>r([]), ms))]); }
+// Senior-or-below only — drop Staff/Lead/Principal/Director/Manager/VP/Head/Intern.
+function seniorityOk(t){ t=(t||"").toLowerCase();
+  return !/\b(staff|lead|principal|director|manager|head of|vp|vice president|architect|distinguished|fellow|intern|internship|apprentice)\b/.test(t); }
+// Requires sponsorship — drop US-citizen / green-card / clearance / no-sponsorship roles.
+function sponsorshipOk(desc){ const d=(desc||"").toLowerCase();
+  const bad=[/u\.?\s?s\.?\s*citizen/, /us citizenship/, /must be a citizen/, /green\s*card/, /permanent resident/, /\bgc holder\b/,
+    /without (visa )?sponsorship/, /no (visa )?sponsorship/, /not (able to|provide|offer) sponsor/, /unable to sponsor/, /do(es)? not (provide|offer)? ?sponsor/,
+    /security clearance/, /\bclearance\b/, /\bitar\b/, /public trust/, /must be authorized to work .* without/];
+  return !bad.some(rx=>rx.test(d)); }
+// Use Claude to analyze each role: keep only Android/Java, Senior-or-below, sponsorship-friendly.
+async function analyzeRoles(list){
+  if(!process.env.ANTHROPIC_API_KEY || !list.length) return list.map(j=>({...j,_keep:true}));
+  const batch=list.slice(0,30);
+  const compact=batch.map((j,i)=>({i,title:j.title,company:j.company,jd:(j.description||"").slice(0,700)}));
+  const prompt=`Screen these software jobs for a candidate who: is an Android & Java engineer; is SENIOR level or below (NOT Staff/Lead/Principal/Director/Manager); and REQUIRES visa sponsorship (cannot take roles requiring US citizenship, a green card, or security clearance, or that explicitly offer no sponsorship).
+For EACH job set keep=true ONLY if ALL hold: (1) it is an Android or Java/backend software-engineering role; (2) seniority is Senior or below; (3) it does NOT require US citizenship/green card/clearance and does not say "no sponsorship".
+Return ONLY a JSON array: [{"i":<index>,"keep":true|false,"reason":"<=8 words"}]. Jobs:
+${JSON.stringify(compact)}`;
+  try{
+    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","x-api-key":process.env.ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},body:JSON.stringify({model:process.env.ANTHROPIC_MODEL||"claude-sonnet-4-6",max_tokens:1500,messages:[{role:"user",content:prompt}]})});
+    if(r.ok){const d=await r.json();const raw=(d.content?.[0]?.text||"").trim().replace(/^```json\s*|\s*```$/g,"");const arr=JSON.parse(raw);
+      const map={}; arr.forEach(x=>{map[x.i]={keep:x.keep,reason:x.reason};});
+      return list.map((j,idx)=>({...j,_keep: idx<30 ? !!(map[idx]&&map[idx].keep) : true, note:(map[idx]&&map[idx].reason)||j.note||""}));
+    }
+  }catch(e){console.error("[analyzeRoles]",e.message);}
+  return list.map(j=>({...j,_keep:true}));
+}
+app.post("/api/discover/live", auth, async (req, res) => {
+  const cat = (req.body && req.body.cat) || "android";
+  const tasks = [];
+  for (const [slug,[name,domain]] of Object.entries(GH_BOARDS)) tasks.push(ghJobs(slug,name,domain,cat));
+  for (const [slug,[name,domain]] of Object.entries(LEVER_BOARDS)) tasks.push(leverJobs(slug,name,domain,cat));
+  // LinkedIn / Indeed / Dice via Apify (capped so the request can't hang).
+  if (discover.apifyEnabled && discover.apifyEnabled()) {
+    tasks.push(withTimeout((async()=>{ try{
+      const api=await discover.fetchJobs({ searchTerm: cat==="java"?"Java Software Engineer":"Android Engineer", location:"United States", sites:["linkedin","indeed","dice"], maxResults:40, linkedinFetchDescription:true });
+      return api.map(j=>({company:j.company,domain:domainFromName(j.company),title:j.title,location:j.location||"Remote",url:j.url,jobId:String(j.id||""),source:j.source||"linkedin",datePosted:(j.datePosted||"").slice(0,10),description:j.description||""}));
+    }catch(e){ console.warn("[apify]",e.message); return []; } })(), 75000));
+  }
+  let all=(await Promise.all(tasks)).flat();
+  // hard filters: must have a JD, be Android/Java, Senior-or-below, sponsorship-friendly
+  all=all.filter(j=> j.description && j.description.length>120 && wantTitle(j.title,cat) && seniorityOk(j.title) && sponsorshipOk(j.description));
+  // de-dupe
+  const seen=new Set(); all=all.filter(j=>{const k=(j.company+"|"+j.title).toLowerCase(); if(seen.has(k))return false; seen.add(k); return true;});
+  // Claude analysis pass
+  const analyzed=await analyzeRoles(all);
+  const kept=analyzed.filter(j=>j._keep).map(({_keep,...j})=>j);
+  res.json({ jobs: kept.slice(0, 60) });
+});
 
 app.get("/api/discover", auth, (req, res) => {
   const d = store.getDiscover(req.user.id);

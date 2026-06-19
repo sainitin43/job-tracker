@@ -137,10 +137,10 @@ function pageCountAt(r, scale) {
 
 // Largest scale (<=1) that keeps the resume on a single page.
 function fitScale(r) {
-  for (const s of [1, 0.98, 0.96, 0.94, 0.92, 0.9, 0.88, 0.86, 0.84, 0.82, 0.8]) {
+  for (const s of [1, 0.985, 0.97, 0.955, 0.94, 0.925, 0.91, 0.895, 0.88, 0.865, 0.85, 0.835, 0.82, 0.805, 0.79, 0.775, 0.76]) {
     try { if (pageCountAt(r, s) <= 1) return s; } catch { /* */ }
   }
-  return 0.8;
+  return 0.76;
 }
 
 export function streamStructuredResumePdf(res, r, downloadName) {

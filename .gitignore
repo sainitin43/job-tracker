@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Large media + scratch files
+public/assets/*.mp4
+*.react-backup
