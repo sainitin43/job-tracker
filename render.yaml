@@ -1,0 +1,32 @@
+# One-service deploy on Render: builds the frontend, the backend serves it,
+# and a persistent disk keeps data.json across redeploys.
+# Set the secret env vars in the Render dashboard (do NOT commit them).
+services:
+  - type: web
+    name: job-tracker
+    runtime: node
+    plan: starter            # "free" works too (sleeps when idle)
+    buildCommand: npm install && npm run build && npm install --prefix server
+    startCommand: cd server && npm start
+    healthCheckPath: /api/health
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: CLIENT_ORIGIN
+        value: https://job-tracker.onrender.com   # change to your URL
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false          # paste in dashboard
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: APIFY_TOKEN
+        sync: false          # paste in dashboard
+      - key: APIFY_ACTOR
+        value: openclawai/job-board-scraper
+      - key: GOOGLE_CLIENT_ID
+        sync: false

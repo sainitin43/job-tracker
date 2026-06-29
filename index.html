@@ -386,7 +386,7 @@
 </head>
 <body>
 <div class="login" id="login">
-  <video class="lbg" autoplay muted loop playsinline><source src="/assets/login-bg.mp4" type="video/mp4"></video>
+  <video class="lbg" muted loop playsinline preload="none" data-vsrc="/assets/login-bg.mp4"></video>
   <div class="lveil"></div>
   <div class="lbrand"><span class="d">J</span> JobTrack</div>
   <div class="glasscard">
@@ -445,7 +445,7 @@
 <section class="view show" id="dashboard">
   <div class="hero">
     <div class="bgimg"></div>
-    <video class="herovideo" autoplay muted loop playsinline><source src="/assets/hero-bg.mp4" type="video/mp4"></video>
+    <video class="herovideo" muted loop playsinline preload="none" data-vsrc="/assets/hero-bg.mp4"></video>
     <div class="veil"></div>
     <canvas id="heroCanvas" class="herocanvas"></canvas>
     <div class="inner">
@@ -603,7 +603,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
 <script>
-const API='http://localhost:4000/api';let TOKEN=localStorage.getItem('jt-token')||'';
+// API base: explicit override → dev localhost → same-origin (when the backend serves this build).
+const API=(window.JT_API_BASE)||((location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:4000/api':(location.origin+'/api'));
+let TOKEN=localStorage.getItem('jt-token')||'';
 async function api(path,opt={}){const r=await fetch(API+path,{method:opt.method||'GET',headers:{'Content-Type':'application/json',...(TOKEN?{Authorization:'Bearer '+TOKEN}:{})},body:opt.body?JSON.stringify(opt.body):undefined});let d=null;try{d=await r.json()}catch(e){}if(!r.ok)throw new Error((d&&d.error)||('HTTP '+r.status));return d;}
 const STATUS2COL={'Not Applied':'na','Applied':'ap','Interviewing':'iv','Offer':'of','Rejected':'ap'};
 const COL2STATUS={na:'Not Applied',ap:'Applied',iv:'Interviewing',of:'Offer'};
@@ -615,16 +617,23 @@ const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','De
 function domainFrom(co){return (co||'').toLowerCase().replace(/[^a-z0-9]/g,'')+'.com';}
 function catFrom(j){const h=((j.title||'')+' '+(j.description||'')).toLowerCase();return (h.includes('java')&&!h.includes('android')&&!h.includes('kotlin'))?'java':'android';}
 function mapJob(j){const col=STATUS2COL[j.status]||'na';return {id:j.id,co:j.company||'—',cat:catFrom(j),domain:j.domain||domainFrom(j.company),ti:j.title||'Role',loc:j.location||'—',ats:100,col,fav:!!j.favourite,rec:false,type:j.type||'Full-time',pay:j.pay||'—',posted:(j.posted||j.datePosted||j.dateApplied||(j.createdAt&&String(j.createdAt).slice(0,10))||todayLocal()),applied:(()=>{if(col==='na')return null;const ad=localDateOf(j.addedAt||j.createdAt||'');let ap=j.dateApplied||todayLocal();if(ad&&ap<ad)ap=ad;return ap;})(),added:(j.addedAt||j.createdAt||''),src:j.source||'manual',note:j.note||'',url:unwrapApplyUrl(j.companyApplyUrl||j.applyUrl||j.applicationUrl||j.externalApplyUrl||j.url||j.jobUrl||j.link||j.postUrl||j.postingUrl||j.redirectUrl||''),jobId:j.jobId||j.externalId||j.id||'',tags:[],resume:j.resume||'',jd:{about:j.description||'No description was saved for this role. Open the original posting for full details.',req:[]}};}
-async function loadJobs(){try{const data=await api('/jobs');const list=Array.isArray(data)?data:(data&&data.jobs)||[];if(list.length){jobs=list.map(mapJob);renderGrid();renderBoard();}}catch(e){console.warn('jobs load failed; showing samples',e.message);}}
+async function loadJobs(){try{const data=await api('/jobs');const list=Array.isArray(data)?data:(data&&data.jobs)||[];if(list.length){jobs=list.map(mapJob);try{markSeen(jobs.map(jobKey));}catch(e){}renderGrid();renderBoard();}}catch(e){console.warn('jobs load failed; showing samples',e.message);}}
 function fmtD(s){const d=new Date(s);return MON[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear();}
 function fmtDT(s){if(!s)return '';const d=new Date(s);if(isNaN(d))return '';let h=d.getHours(),m=d.getMinutes(),ap=h>=12?'PM':'AM';h=h%12||12;return MON[d.getMonth()]+' '+d.getDate()+' · '+h+':'+(m<10?'0'+m:m)+' '+ap;}
 function todayLocal(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function localDateOf(s){if(!s)return '';const d=new Date(s);if(isNaN(d))return '';return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function daysAgo(s){const x=Math.round((today-new Date(s))/86400000);return x<=0?'today':x===1?'1 day ago':x+' days ago';}
-function logo(j){return `<img src="https://logo.clearbit.com/${j.domain}?size=128" alt="${j.co}" data-step="0" data-domain="${j.domain}"
-  onerror="(function(im){var s=+im.dataset.step+1;im.dataset.step=s;var d=im.dataset.domain;
-   if(s===1)im.src='https://www.google.com/s2/favicons?domain='+d+'&sz=128';
-   else if(s===2)im.src='https://icons.duckduckgo.com/ip3/'+d+'.ico';else im.removeAttribute('onerror');})(this)">`;}
+function letterSvg(co){const ch=((co||'?').trim().charAt(0)||'?').toUpperCase();
+  return "data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="26" fill="#e9e9ee"/><text x="50%" y="52%" font-size="62" font-family="Inter,Arial,sans-serif" font-weight="700" fill="#0a0a0c" text-anchor="middle" dominant-baseline="central">'+ch+'</text></svg>');}
+function logo(j){
+  const d=(j.domain||'').trim();
+  const valid=d&&/\./.test(d)&&d!=='.com'&&!d.startsWith('.');
+  const svg=letterSvg(j.co);
+  if(!valid)return `<img src="${svg}" alt="${j.co||''}">`;
+  // Clearbit's logo API is dead — use Google favicon, then DuckDuckGo, then a
+  // guaranteed inline letter avatar (no more network requests, no spinner hang).
+  return `<img src="https://www.google.com/s2/favicons?domain=${d}&sz=128" alt="${j.co||''}" data-step="0" data-d="${d}" data-svg="${svg}"
+   onerror="(function(im){var s=+im.dataset.step+1;im.dataset.step=s;if(s===1){im.src='https://icons.duckduckgo.com/ip3/'+im.dataset.d+'.ico';}else{im.onerror=null;im.src=im.dataset.svg;}})(this)">`;}
 let curCat='android',curTab='na',qDash='',qPipe='',qDisc='';
 function matchQ(j,q){if(!q)return true;q=q.toLowerCase();return (j.ti+' '+j.co+' '+j.loc+' '+(j.tags||[]).join(' ')+' '+(j.type||'')).toLowerCase().includes(q);}
 
@@ -792,26 +801,34 @@ function openDiscover(k){const j=discoverJobs[k];fillModal(j);
 function closeDetail(){dOv.classList.remove('show');document.body.style.overflow='';}
 
 /* discover feed */
-let discoverJobs=[];  // fully dynamic — filled live from Greenhouse/Lever via the backend
+// Discover jobs persist across reloads — shown when you open Discover; refreshed only on "Find jobs".
+let discoverJobs=(()=>{try{return JSON.parse(localStorage.getItem('jt-discover')||'[]');}catch(e){return [];}})();
+function saveDiscover(){try{localStorage.setItem('jt-discover',JSON.stringify(discoverJobs.slice(0,200)));}catch(e){}}
 let discSrc='all';
 function isLeadTitle(t){return /\b(intern|principal|director|head|vp)\b/i.test(t||'');}
+// Persistent "seen" set so a job never appears twice (across pulls, reloads, sessions).
+function jobKey(j){return String((j&&(j.jobId||j.externalId))||((j&&(j.co||j.company)||'')+'|'+(j&&(j.ti||j.title)||''))).toLowerCase().trim();}
+let SEEN_JOBS=(()=>{try{return new Set(JSON.parse(localStorage.getItem('jt-seen-jobs')||'[]'));}catch(e){return new Set();}})();
+function markSeen(keys){keys.forEach(k=>{if(k)SEEN_JOBS.add(k);});const arr=[...SEEN_JOBS].slice(-800);SEEN_JOBS=new Set(arr);try{localStorage.setItem('jt-seen-jobs',JSON.stringify(arr));}catch(e){}}
 async function findJobs(btn){const orig=btn&&btn.innerHTML;if(btn){btn.disabled=true;btn.style.opacity=.75;btn.innerHTML='<span class="spin"></span>Scanning…';}
-  showStatus('<span class="spin"></span> Scanning LinkedIn · Indeed · Dice · Greenhouse · Lever for ' + (curCat==='java'?'Java':'Android') + ' roles — Claude is reading each JD (sponsorship-friendly, senior & below). This takes a moment…');
+  showStatus('<span class="spin"></span> Scanning LinkedIn · Indeed · Dice · Greenhouse · Lever · Ashby for ' + (curCat==='java'?'Java':'Android') + ' roles — Claude is reading each JD. Skipping ones you’ve already seen…');
   let found=[];
   if(TOKEN){try{
-    const d=await api('/discover/live',{method:'POST',body:{cat:curCat}});
+    const d=await api('/discover/live',{method:'POST',body:{cat:curCat, seen:[...SEEN_JOBS].slice(-500)}});
     const list=(d&&d.jobs)||[];
     found=list.map(r=>{const m=mapJob(r);return {co:m.co,cat:m.cat,domain:m.domain,ti:m.ti,loc:m.loc,ats:m.ats,type:m.type,pay:m.pay,posted:m.posted,src:m.src,url:m.url,jobId:m.jobId,tags:m.tags,jd:m.jd};});
   }catch(e){console.warn('discover live',e.message);}}
-  // de-dup against what's already shown + drop interns/exec
-  const seen=new Set(discoverJobs.map(j=>j.url||j.ti+j.co));
-  const kept=found.filter(j=>!isLeadTitle(j.ti)&&!seen.has(j.url||j.ti+j.co));
+  // never re-show: drop interns/exec, anything already on screen, and anything seen before
+  const shown=new Set(discoverJobs.map(jobKey));
+  const kept=found.filter(j=>!isLeadTitle(j.ti)&&!shown.has(jobKey(j))&&!SEEN_JOBS.has(jobKey(j)));
   kept.forEach(j=>discoverJobs.unshift(j));
+  markSeen(kept.map(jobKey));
+  saveDiscover();
   renderDiscover();
   if(btn){btn.disabled=false;btn.style.opacity=1;btn.innerHTML=orig;}
-  if(kept.length){showStatus('✓ Found '+kept.length+' live roles with real apply links');hideStatus(2400);showFindResults(kept.slice(0,12));}
+  if(kept.length){showStatus('✓ Found '+kept.length+' fresh roles (no repeats)');hideStatus(2600);showFindResults(kept.slice(0,12));}
   else if(!TOKEN){showStatus('Sign in to pull live jobs');hideStatus(3000);}
-  else{showStatus('No new roles right now — try again shortly');hideStatus(3000);}}
+  else{showStatus('No new roles — you’ve already seen all current postings. Tap again later or I can widen the company list.');hideStatus(4000);}}
 function showFindResults(list){
   const rows=list.map(j=>`<div style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:11px 13px;margin-bottom:10px">
      <div style="width:40px;height:40px;border-radius:10px;background:#fff;overflow:hidden;display:grid;place-items:center;flex-shrink:0">${logo(j)}</div>
@@ -850,7 +867,7 @@ function renderDiscover(){
 }
 async function addToPipeline(k){const j=discoverJobs[k];
   const job={...j,col:'na',fav:false,rec:j.src==='recruiter',note:'Added from Discover'};
-  jobs.push(job);discoverJobs.splice(k,1);renderDiscover();renderGrid();renderBoard();toast('✓ Added '+j.co+' to your pipeline');
+  jobs.push(job);discoverJobs.splice(k,1);saveDiscover();renderDiscover();renderGrid();renderBoard();toast('✓ Added '+j.co+' to your pipeline');
   await tailorJob(job);}
 async function tailorJob(job){
   showStatus('🤖 Tailoring '+job.co+' resume to 100% ATS (single page)…');
@@ -869,7 +886,7 @@ async function tailorAll(){const list=jobs.filter(j=>j.ats<100);if(!list.length)
     try{if(job.id&&TOKEN){await api('/jobs/'+job.id+'/retailor',{method:'POST',body:{strong:true,target:100}});}else{await new Promise(r=>setTimeout(r,500));}}catch(e){}
     job.ats=100;job.resume=resumeName(job);}
   if(TOKEN)await loadJobs();renderGrid();renderBoard();showStatus('✓ All '+list.length+' resumes at 100% ATS · 1 page');hideStatus(3000);}
-function dismissDisc(k){const j=discoverJobs[k];discoverJobs.splice(k,1);renderDiscover();toast('Dismissed '+j.co);}
+function dismissDisc(k){const j=discoverJobs[k];discoverJobs.splice(k,1);saveDiscover();renderDiscover();toast('Dismissed '+j.co);}
 let toastT;function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
 let statusT;function showStatus(html){const s=document.getElementById('statusbar');s.innerHTML=html;s.classList.add('show');clearTimeout(statusT);}
 function hideStatus(d){clearTimeout(statusT);statusT=setTimeout(()=>document.getElementById('statusbar').classList.remove('show'),d||0);}
@@ -899,7 +916,7 @@ function go(view){
     window.scrollTo({top:0,behavior:'auto'});syncSegs();
     document.body.dataset.view=view;setNavMode(view);
     if(view==='insights')setTimeout(renderInsights,60);
-    if(view==='discover'&&TOKEN&&!discoverJobs.length)setTimeout(()=>findJobs(document.getElementById('findBtn')),150);
+    // Discover shows your previously fetched jobs; use "Find jobs" to pull fresh ones.
   },240);}
 
 /* resume hub */
@@ -1040,6 +1057,7 @@ function enterApp(firstName,opts={}){
   if(firstName&&firstName.trim())FIRST=firstName.trim().split(' ')[0];
   applyName();setGreeting();
   document.getElementById('login').classList.add('hide');
+  try{const lv=document.querySelector('.lbg');if(lv)lv.pause();}catch(e){}
   loadJobs();
   if(opts.silent){document.body.style.overflow='';return;}
   const sp=document.getElementById('splash');sp.classList.add('show');document.body.style.overflow='hidden';
@@ -1205,6 +1223,15 @@ addEventListener('keydown',e=>{if(e.key==='Escape'){closeDetail();closeHow();clo
 /* init */
 window.GOOGLE_CLIENT_ID='400407178471-aldf00pvmnsbo41lg8sfsvv1eip7mu0o.apps.googleusercontent.com';
 renderGrid();renderBoard();renderResumes();renderDiscover();setTimeout(syncSegs,120);autoLogin();
+// Attach + play background videos only AFTER the page has fully loaded, so a
+// looping video never keeps the browser tab's loading spinner spinning.
+function lazyVideos(){document.querySelectorAll('video[data-vsrc]').forEach(v=>{if(v.dataset.loaded)return;v.dataset.loaded='1';v.src=v.dataset.vsrc;const p=v.play();if(p&&p.catch)p.catch(()=>{});});}
+if(document.readyState==='complete')setTimeout(lazyVideos,60);else window.addEventListener('load',()=>setTimeout(lazyVideos,60));
+// Live-sync: when you return to the dashboard (e.g. after the applier marks a job
+// Applied) or every 25s, reload jobs so applied status appears without a manual refresh.
+window.addEventListener('focus',()=>{if(TOKEN)loadJobs();});
+document.addEventListener('visibilitychange',()=>{if(TOKEN&&document.visibilityState==='visible')loadJobs();});
+setInterval(()=>{if(TOKEN&&document.visibilityState==='visible')loadJobs();},25000);
 // Auto-refresh live jobs every 2 hours while signed in (Job Scheduler cadence)
 setInterval(()=>{if(TOKEN){const b=document.getElementById('findBtn');findJobs(b||document.createElement('button'));}},2*60*60*1000);
 const cio=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');const t=+e.target.dataset.count;if(t){let c=0;const st=Math.max(1,Math.ceil(t/30));const iv=setInterval(()=>{c+=st;if(c>=t){c=t;clearInterval(iv)}e.target.textContent=c},24);}cio.unobserve(e.target);}}),{threshold:.4});

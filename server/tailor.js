@@ -2,15 +2,31 @@ import { BASE_RESUME, resumeToText } from "./resumeTemplate.js";
 
 // ---- Strict ATS scoring -------------------------------------------------
 const ATS_KEYWORDS = [
-  "Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go", "C++", "C#", "Swift",
-  "Android", "iOS", "Jetpack Compose", "MVVM", "MVI", "Coroutines", "Flow", "RxJava",
-  "React", "Redux", "Angular", "Vue", "Node.js", "Spring Boot", "Express", "GraphQL", "REST",
-  "Retrofit", "OkHttp", "Hilt", "Dagger", "Room", "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis",
-  "Kafka", "RabbitMQ", "AWS", "GCP", "Azure", "Docker", "Kubernetes", "Terraform", "CI/CD",
-  "Jenkins", "Maven", "Gradle", "Git", "Agile", "Scrum", "Microservices", "OAuth", "JWT",
-  "JUnit", "Espresso", "Mockito", "Jest", "Cypress", "Playwright", "Selenium",
-  "TensorFlow", "PyTorch", "Machine Learning", "LLM", "GenAI", "MediaPipe", "ML Kit", "CameraX",
-  "Kotlin Multiplatform", "Compose Multiplatform", "WebSocket", "gRPC"
+  // languages
+  "Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go", "Golang", "C++", "C#", "Swift", "SQL", "Bash",
+  // android / jetpack
+  "Android", "iOS", "Android SDK", "Jetpack Compose", "Compose", "Jetpack", "MVVM", "MVI", "MVP", "Clean Architecture",
+  "Coroutines", "Flow", "StateFlow", "LiveData", "RxJava", "Retrofit", "OkHttp", "Hilt", "Dagger", "Koin",
+  "Room", "DataStore", "WorkManager", "Navigation", "Paging", "ViewModel", "Material Design", "Material 3",
+  "ExoPlayer", "Media3", "CameraX", "ML Kit", "MediaPipe", "Accessibility", "Espresso", "Compose UI Test",
+  "Kotlin Multiplatform", "Compose Multiplatform", "KMP", "Gradle", "Bazel", "Proguard", "R8", "Modularization",
+  "Firebase", "Crashlytics", "Push Notifications", "FCM", "Deep Linking", "A/B Testing", "Feature Flags",
+  // web / backend
+  "React", "Redux", "Angular", "Vue", "Next.js", "Node.js", "Express", "Spring Boot", "Spring", "Spring Security",
+  "Hibernate", "JPA", "GraphQL", "Apollo", "REST", "RESTful", "gRPC", "Protobuf", "WebSocket", "Microservices",
+  "Event-Driven", "Kafka", "RabbitMQ", "Pub/Sub",
+  // data / cloud / devops
+  "PostgreSQL", "MySQL", "MongoDB", "DynamoDB", "Cassandra", "Redis", "Elasticsearch", "Caching",
+  "AWS", "GCP", "Azure", "Docker", "Kubernetes", "Terraform", "Helm", "Serverless", "Lambda",
+  "CI/CD", "Jenkins", "GitHub Actions", "CircleCI", "Maven", "Git", "Agile", "Scrum",
+  // security / auth
+  "OAuth", "OAuth 2.0", "JWT", "OIDC", "SSO", "SAML", "Biometric", "Encryption", "TLS",
+  // quality / practices
+  "JUnit", "Mockito", "Jest", "Cypress", "Playwright", "Selenium", "TDD", "Unit Testing", "Integration Testing",
+  "Code Review", "Performance Optimization", "Profiling", "Concurrency", "Multithreading", "Memory Management",
+  "Observability", "Datadog", "Grafana", "Prometheus", "Sentry",
+  // ai / ml
+  "TensorFlow", "PyTorch", "Machine Learning", "LLM", "GenAI", "RAG", "Prompt Engineering"
 ];
 
 // Strict ATS score = % of keywords the JD asks for that actually appear in the resume.
@@ -154,6 +170,31 @@ function weaveKeywordsHeuristic(experience, missing) {
     exp[0].bullets.push(`Delivered production features leveraging ${remaining.join(", ")}, applying them across development, testing, and deployment.`);
   }
   return exp;
+}
+
+// Weave keywords into existing EXPERIENCE bullets (next to a sibling tech so it
+// reads naturally) WITHOUT adding bullets. Returns the experience plus any
+// keyword that couldn't be placed, so the caller can route leftovers to skills.
+function weaveIntoExperience(experience, missing) {
+  const exp = experience.map(e => ({ ...e, bullets: [...e.bullets] }));
+  const remaining = [];
+  for (const kw of missing) {
+    const lc = kw.toLowerCase();
+    const bucket = SKILL_BUCKETS.find(b => b.kws.some(k => k.toLowerCase() === lc));
+    const siblings = bucket ? bucket.kws.filter(k => k.toLowerCase() !== lc) : [];
+    let placed = false;
+    for (const e of exp) {
+      for (let i = 0; i < e.bullets.length; i++) {
+        const b = e.bullets[i];
+        if (b.toLowerCase().includes(lc)) { placed = true; break; }
+        const sib = siblings.find(s => new RegExp(`\\b${escapeRe(s)}\\b`, "i").test(b));
+        if (sib) { e.bullets[i] = b.replace(new RegExp(`\\b${escapeRe(sib)}\\b`, "i"), m => `${m}, ${kw}`); placed = true; break; }
+      }
+      if (placed) break;
+    }
+    if (!placed) remaining.push(kw);
+  }
+  return { experience: exp, remaining };
 }
 
 // Fill ATS gaps: weave missing keywords into the EXPERIENCE bullets (LLM if
@@ -378,19 +419,22 @@ function weaveIntoSkills(skills, missing) {
 // bullets tailored to the job. Every other section stays verbatim, and the
 // resume is GUARANTEED to hit 100% ATS for this JD. Returns { struct, text }.
 export async function buildTailoredResume(job, profile, match, opts = {}) {
-  // 1) LLM rewrites the experience bullets — keeps the base format and bullet
-  //    counts (8 / 8 / 6), stays truthful, and reads like an experienced dev.
-  const experience = await tailorExperience(job, match, opts.strong !== false);
+  // 1) Identify the JD's actual keywords and have the LLM weave them into the
+  //    EXPERIENCE bullets (real rewrites, not synonym swaps), keeping format/counts.
+  const jdKws = jdKeywords(job);
+  let experience = await tailorExperience(job, match, opts.strong !== false, jdKws);
   let struct = { ...BASE_RESUME, experience };
-  // 2) Strict 100%: any JD keyword the tailored bullets didn't already cover is
-  //    placed into the matching base SKILLS line — clean and ATS-legitimate,
-  //    never padding the experience section with generic filler.
-  const { missing } = atsScore(jobText(job), resumeToText(struct));
-  if (missing && missing.length) struct = { ...struct, skills: weaveIntoSkills(struct.skills, missing) };
-  // 3) Safety net — if a keyword still slipped through, weave it into the most
-  //    relevant existing experience bullet (no new filler bullet is created).
-  const after = atsScore(jobText(job), resumeToText(struct));
-  if (after.missing && after.missing.length) struct = { ...struct, skills: weaveIntoSkills(struct.skills, after.missing) };
+  // 2) Any JD keyword still missing → weave into the EXPERIENCE bullets first
+  //    (so the bullets reflect the job), routing only true non-fits to skills.
+  let miss = atsScore(jobText(job), resumeToText(struct)).missing;
+  if (miss && miss.length) {
+    const w = weaveIntoExperience(experience, miss);
+    experience = w.experience; struct = { ...struct, experience };
+    if (w.remaining.length) struct = { ...struct, skills: weaveIntoSkills(struct.skills, w.remaining) };
+  }
+  // 3) Strict 100% safety net for anything left.
+  const after = atsScore(jobText(job), resumeToText(struct)).missing;
+  if (after && after.length) struct = { ...struct, skills: weaveIntoSkills(struct.skills, after) };
   return { struct, text: resumeToText(struct) };
 }
 
@@ -414,24 +458,30 @@ function heuristicTailor(experience, job) {
   }));
 }
 
-async function tailorExperience(job, match, strong = false) {
+async function tailorExperience(job, match, strong = false, jdKws = []) {
   if (!process.env.ANTHROPIC_API_KEY) return heuristicTailor(BASE_RESUME.experience, job);
   try {
-    const strongLine = strong
-      ? "\n- Write like a SENIOR, EXPERIENCED engineer. Every bullet must be a complete, meaningful sentence — lead with a strong action verb, name concrete tools/frameworks/protocols from the JD where they genuinely fit the candidate's work, and state the engineering outcome. Maximize ATS keyword coverage aggressively while staying truthful. NEVER output generic filler like 'delivered production features leveraging X, Y, Z' — each bullet must describe real, specific work."
+    const kwLine = jdKws && jdKws.length
+      ? `\n\nKEYWORDS THIS JOB REQUIRES — you MUST incorporate as many of these EXACT terms as truthfully fit the candidate's Android/Java/backend work, placing them directly inside the experience bullets:\n${jdKws.join(", ")}`
       : "";
     const prompt =
-`You are an expert ATS resume writer. Tailor ONLY the bullet points of each experience entry to the target job below to MAXIMIZE strict ATS keyword match while reading like a real, experienced developer wrote them. Rules:
+`You are an expert ATS resume writer. Aggressively rewrite the bullet points of each experience entry so the résumé reflects THIS target job — do NOT just swap synonyms. Make substantial, meaningful edits that inject the job's real technologies and terminology into the candidate's existing accomplishments.
+
+HARD RULES:
 - Keep the SAME company, location, title, and dates for each entry.
-- Keep EXACTLY the SAME number of bullets per entry (do not add or drop any).
-- Stay 100% truthful: only re-emphasize, reorder, and re-word the candidate's existing facts/technologies; do NOT invent employers, tools, or experience not already present.
-- Weave in the JD's exact terminology and technologies wherever they plausibly overlap with the candidate's work — match the job's wording precisely (e.g. if the JD says "Jetpack Compose", "coroutines", "gRPC", use those exact terms).
-- Keep each bullet a single, specific, technically dense sentence. No filler, no fluff, no repetition.${strongLine}
+- Keep EXACTLY the SAME number of bullets per entry (never add or drop bullets).
+- Stay 100% truthful: only re-emphasize and re-word the candidate's existing Android/Java/backend work; never invent employers, tools, projects, or metrics not already implied by their base résumé.
+- Each bullet must be ONE specific, technically dense sentence led by a strong action verb, naming concrete tools/frameworks/protocols and the engineering outcome.
+
+KEYWORD INJECTION (most important):
+- Read the job description, identify its key technical skills, and WEAVE those exact terms into the bullets where they plausibly fit the candidate's real work. Use the job's precise wording (e.g. if the JD says "Jetpack Compose", "Coroutines", "gRPC", "Kafka", "GraphQL", use those exact terms).
+- Prefer modifying the MOST RELEVANT bullet to host each keyword rather than forcing it. It is fine to mention a technology alongside a sibling one already present (e.g. "REST and gRPC", "Retrofit and OkHttp").
+- Do NOT output generic filler like "delivered production features leveraging X, Y, Z". Every bullet describes real, specific work.${kwLine}
 Return ONLY a JSON array with this exact shape: [{"company":"","location":"","title":"","dates":"","bullets":["",...]}]
 
 TARGET JOB TITLE: ${job.title} @ ${job.company}
 TARGET JOB DESCRIPTION:
-${(job.description || "").slice(0, 4500)}
+${(job.description || "").slice(0, 5000)}
 
 CURRENT EXPERIENCE (JSON):
 ${JSON.stringify(BASE_RESUME.experience)}`;

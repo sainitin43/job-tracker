@@ -1,79 +1,72 @@
-# Job Application Tracker
+# Job Tracker — AI Job Applier
 
-A local-first job application tracker built with **React + Vite**. Track roles you've applied to, keep the full job description for each, store a tailored resume per job, and stay organized with stats, search, and filters.
+A self-hosted job tracker with a live job-discovery feed, 100% ATS résumé
+tailoring (Claude), and a Chrome extension that auto-fills applications and
+syncs "Applied" back to your dashboard.
 
-## Features
+- **Frontend:** static Vite app (`index.html`) — the dashboard (Discover, Pipeline, Résumé, Insights).
+- **Backend:** Node/Express (`server/`) — auth, job store, Claude tailoring, Apify job fetching. Stores data in `server/data.json`.
+- **Extension:** Chrome MV3 (`extension/`) — the side-panel auto-applier + AI Rewrite chat.
 
-- **Per-account login** — email/password sign up & log in, plus **Continue with Google** (OAuth). Each account's data is isolated.
-- **Personal dashboard** — header greets you by first name ("{First name}'s Jobs") with Total / Applied / Interviewing / Offers stats.
-- **Job cards** — company, title, status pill, location, type, pay, applied date, and attached resume at a glance.
-- **Full job descriptions** — expand any card to read the complete JD (nothing truncated).
-- **Add / Edit modal** — create or update a job, including status, dates, and the full JD.
-- **Resumes per job** — attach a resume file (PDF/DOC/TXT/MD), download it, plus a tailored resume-text field with TXT/MD export.
-- **Status-tab board** — top tabs **Not Applied · Applied · ⭐ Favourite**; change a job's status inline on its card and it moves tabs instantly.
-- **Find Jobs (auto)** — pulls fresh matches from LinkedIn / Indeed / Glassdoor via an **Apify** actor, keeps good fits, generates a **tailored ATS resume** for each (Claude LLM, with template fallback), and drops them into **Not Applied**. Also **auto-refreshes every 2 hours** (local cron). Requires `APIFY_TOKEN`.
-- **Apply-on-return prompt** — click **Open & Apply** on a job; when you switch back to the app it asks "Did you apply?" — **Yes** moves it to **Applied**.
-- **Top search + tech-stack filter** — search bar + tech chips (Java, Kotlin, React…) to narrow the current tab.
-- **Favourites** — ⭐ any job to find it in the Favourite tab.
-- **Search & filter** — by company, title, status, or description.
-- **Backup** — Export / Import all jobs as JSON.
-- Animated, responsive dark UI.
+## Quick start (clone → run)
 
-## Find Jobs setup
-
-To enable auto job-finding, add keys to `server/.env`:
-
-```
-APIFY_TOKEN=your_apify_token              # console.apify.com/account/integrations  (required)
-APIFY_ACTOR=openclawai/job-board-scraper
-ANTHROPIC_API_KEY=sk-ant-api03-...        # console.anthropic.com/settings/keys  (optional; LLM resumes)
-ANTHROPIC_MODEL=claude-3-5-haiku-latest
-```
-
-Restart the backend, then on the **Not Applied** tab set your Role/Location and click **Find & tailor jobs**. Matches are scored, given a tailored resume, and added to Not Applied; the backend also re-fetches every 2 hours (keep the server running).
-
-- Apify is pay-per-result (~$0.005/job) — keep "Per board" modest.
-- Without `ANTHROPIC_API_KEY` (or if the account has no credits), resumes use a built-in template; add a funded key to switch to Claude automatically.
-
-## Tech stack
-
-- React 18 + Vite
-- Plain CSS (no UI framework)
-- Browser `localStorage` for persistence (no backend)
-
-## Getting started
+Requires **Node 18+** and Chrome.
 
 ```bash
-npm install
-npm run dev      # start dev server at http://localhost:5173
-npm run build    # production build into dist/
-npm run preview  # preview the production build
+git clone https://github.com/sainitin43/job-tracker.git
+cd job-tracker
+npm run setup     # installs deps (root + server) and creates server/.env with a random JWT
+npm start         # runs backend (:4000) and frontend (:5173) together
 ```
 
-## Google Sign-In setup
+Open **http://localhost:5173**, sign up with an email/password, and you're in.
 
-1. In **Google Cloud Console → APIs & Services → Credentials**, create an **OAuth client ID** (type: *Web application*).
-2. Add your app URL to both **Authorized JavaScript origins** and **Authorized redirect URIs**:
-   - Local dev: origin `http://localhost:5173`, redirect URI `http://localhost:5173/`
-   - Production: your deployed URL (origin without trailing slash, redirect URI with trailing slash)
-3. Put the Client ID in `src/App.jsx` (`GOOGLE_CLIENT_ID`), or set it at runtime in the browser console:
-   ```js
-   localStorage.setItem('jt-google-client-id', 'YOUR_ID.apps.googleusercontent.com')
-   ```
+It works out of the box: **free job discovery** (Greenhouse, Lever, Ashby,
+SmartRecruiters — no keys needed) and **heuristic résumé tailoring**.
 
-## Data & privacy
+### Unlock the premium features (optional)
 
-Accounts and job data are stored in the browser's `localStorage`, keyed by email. This means:
+Paste your keys into `server/.env`, then restart (`npm start`):
 
-- Data lives only in the browser/device where it was created (no cloud sync).
-- Each account sees only its own jobs.
-- The email/password login is a lightweight local mechanism (passwords are stored locally in plain text) — **not** production-grade security.
+| Key | Unlocks | Get it |
+|-----|---------|--------|
+| `ANTHROPIC_API_KEY` | Claude AI résumé tailoring, screening answers, AI Rewrite chat | console.anthropic.com/settings/keys |
+| `APIFY_TOKEN` | Live LinkedIn / Indeed / Dice jobs | console.apify.com/account/integrations |
+| `GOOGLE_CLIENT_ID` | "Sign in with Google" | Google Cloud Console |
 
-For real multi-user, cross-device, secure accounts, pair the app with a backend such as **Supabase** or **Firebase Auth + Firestore**.
+### Load the Chrome extension
 
-## Roadmap ideas
+1. Go to `chrome://extensions`, enable **Developer mode**.
+2. **Load unpacked** → select the `extension/` folder.
+3. Sign in via the extension popup. The side panel auto-fills applications and
+   marks jobs Applied on your dashboard.
 
-- Supabase/Firebase backend for synced, secure accounts
-- Password reset flow
-- Server-side resume storage
-- Deploy to Vercel/Netlify with auto-deploy on push
+(For a deployed backend, point the extension at it without editing code — in the
+extension's service-worker console: `chrome.storage.local.set({ jt_api_base: "https://YOUR-BACKEND/api" })`.)
+
+## Moving your exact setup (with keys) to another machine
+
+Your keys live in `server/.env`, which is **git-ignored** and never pushed — so a
+fresh `git clone` won't include them. To move your full working setup:
+
+- **Option A:** copy `server/.env` to the new machine (AirDrop / USB / scp) after cloning.
+- **Option B:** run `npm run bundle` to make a `job-tracker-bundle.zip` that
+  includes `.env` and `data.json`; move it privately, unzip, then `npm run setup && npm start`.
+
+> ⚠ Never commit `server/.env` or upload the bundle anywhere public — it contains
+> your paid API keys.
+
+## Deploying as a website
+
+See **[DEPLOY.md](DEPLOY.md)** — one-service deploy (the backend serves the built
+frontend) with a persistent disk for `data.json`. A `render.yaml` blueprint is included.
+
+## Scripts
+
+| Command | Does |
+|---------|------|
+| `npm run setup` | Install deps + create `server/.env` |
+| `npm start` | Run backend + frontend together (dev) |
+| `npm run build` | Build the frontend to `dist/` |
+| `npm run start:prod` | Build, then serve everything from the backend (one service) |
+| `npm run bundle` | Zip the project (with keys) for personal transfer |

@@ -21,14 +21,15 @@ Used by the Job Applier autofill (`defaultApplicant` in `server/server.js`) and 
 - Salary expectation: $130,000
 - How did you hear: LinkedIn
 
-## EEO / demographics (confirmed 2026-06-19)
-- Gender: **Male**
+## EEO / demographics (confirmed 2026-06-20 by user)
+- Gender: **Male** (gender identity → "Man" / "Cisgender man")
 - Identify as transgender: **No**
 - Sexual orientation: **Heterosexual / Straight**
-- Hispanic/Latino: No
-- Race/ethnicity: Asian
-- Veteran status: Not a Veteran
-- Disability — standard EEO self-ID: "No, I do not have a disability"
+- Pronouns: **He / Him**
+- Hispanic/Latino: **No**
+- Race/ethnicity: **Asian**
+- Veteran status: **Not a Veteran** (→ "I have never served in the military")
+- Disability — standard EEO self-ID: **"No, I do not have a disability"**
 - Long-lasting / chronic condition that substantially limits major life activities: **No**
 
 ## Job search filters (mandatory)

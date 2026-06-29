@@ -1,9 +1,15 @@
 // Service worker: the single gateway to the Job Tracker backend.
 // Content script + popup talk only to this worker (avoids page CORS issues).
-// To point at a deployed backend, change API_BASE and the host_permissions in manifest.json.
-const API_BASE = "http://localhost:4000/api";
+// Backend URL. Defaults to localhost; override at runtime without editing code via
+//   chrome.storage.local.set({ jt_api_base: "https://your-backend.com/api" })
+// (also add that host to host_permissions in manifest.json for a deployed backend).
+const DEFAULT_API_BASE = "http://localhost:4000/api";
 const GOOGLE_CLIENT_ID = "400407178471-aldf00pvmnsbo41lg8sfsvv1eip7mu0o.apps.googleusercontent.com";
 
+async function apiBase() {
+  const { jt_api_base } = await chrome.storage.local.get("jt_api_base");
+  return jt_api_base || DEFAULT_API_BASE;
+}
 async function getToken() {
   const { jt_token } = await chrome.storage.local.get("jt_token");
   return jt_token || null;
@@ -11,7 +17,7 @@ async function getToken() {
 
 async function api(method, path, body) {
   const token = await getToken();
-  const res = await fetch(API_BASE + path, {
+  const res = await fetch((await apiBase()) +path, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -70,7 +76,7 @@ async function session() {
 // script can build a File and attach it to a page's <input type=file>.
 async function resumeDataUrl(path) {
   const token = await getToken();
-  const res = await fetch(API_BASE + path, { headers: { Authorization: "Bearer " + token } });
+  const res = await fetch((await apiBase()) +path, { headers: { Authorization: "Bearer " + token } });
   if (!res.ok) throw new Error("Resume download failed (" + res.status + ")");
   const buf = await res.arrayBuffer();
   const bytes = new Uint8Array(buf);
@@ -84,7 +90,7 @@ async function resumeDataUrl(path) {
 // POST a JD and get back a freshly tailored (100% ATS) resume PDF as a data URL.
 async function tailorResume(job) {
   const token = await getToken();
-  const res = await fetch(API_BASE + "/ai/resume.pdf", {
+  const res = await fetch((await apiBase()) +"/ai/resume.pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
     body: JSON.stringify(job || {})

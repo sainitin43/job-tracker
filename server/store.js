@@ -5,7 +5,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_FILE = path.join(__dirname, "data.json");
+// DATA_DIR lets a host mount a persistent disk (e.g. /data) so data survives redeploys.
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
+const DB_FILE = path.join(DATA_DIR, "data.json");
 
 let data = { users: [], jobs: [], discover: {}, recruiters: {} };
 

@@ -4,6 +4,9 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import * as store from "./store.js";
 import * as discover from "./discover.js";
 import { scoreMatch, buildTailoredResume, atsScore, coldOutreach, analyzeGap, fillGap, normalizeResume, coverLetter } from "./tailor.js";
@@ -16,14 +19,15 @@ dotenv.config();
 
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev-only-insecure-secret-change-me";
-const ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+// CLIENT_ORIGIN may be a comma-separated list of allowed web origins.
+const ORIGINS = (process.env.CLIENT_ORIGIN || "http://localhost:5173").split(",").map(s => s.trim()).filter(Boolean);
 
 const app = express();
-// Allow the web app origin and the Chrome extension (chrome-extension://<id>).
+// Allow the configured web origin(s), any localhost port, and the Chrome extension.
 app.use(cors({
   origin(origin, cb) {
     if (!origin) return cb(null, true);                       // curl / same-origin / service worker
-    if (origin === ORIGIN || /^chrome-extension:\/\//.test(origin)) return cb(null, true);
+    if (ORIGINS.includes(origin) || /^chrome-extension:\/\//.test(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return cb(null, true);
     return cb(null, false);
   },
   credentials: true
@@ -405,9 +409,11 @@ app.post("/api/ai/answer", auth, async (req, res) => {
 
   const out = {};
   const ask = [];
+  const longSet = new Set();
   for (const q of questions) {
     const text = q.question || q.q || "";
-    const hit = fromBank(text);
+    if (q.long) longSet.add(text);                 // essays: always fresh, never from bank
+    const hit = q.long ? null : fromBank(text);
     if (hit != null) out[text] = hit;
     else ask.push(q);
   }
@@ -416,7 +422,19 @@ app.post("/api/ai/answer", auth, async (req, res) => {
   if (ask.length && process.env.ANTHROPIC_API_KEY) {
     try {
       const prompt =
-`You are filling a job application for this candidate. Use ONLY the candidate's real data; never invent employment, degrees, or numbers not supported below. For each question return the single best short answer to type or select. If the field offers options, choose the exact option text that fits. Be concise.
+`You are an expert job-application assistant filling a real application for this candidate. Analyze each question against the candidate's profile and the target job, then return the single best answer to type or select.
+
+RULES (follow strictly):
+- Use ONLY the candidate's real data. NEVER invent employers, titles, degrees, dates, or numbers not present below.
+- If the field provides "options", you MUST return the EXACT option text (verbatim) that best fits — do not paraphrase.
+- Work authorization: the candidate IS authorized to work in the US → answer "Yes".
+- Visa sponsorship: the candidate DOES require sponsorship now/in future → answer "Yes".
+- Willingness to relocate / work onsite / from listed office → "Yes".
+- Demographics/EEO (gender, race, veteran, disability, LGBTQ, pronouns): use the candidate's demographics; map to the closest provided option (e.g. gender "Male" → "Man"/"Cisgender man"; race "South Asian" → "South Asian"/"Asian"; "Not a Veteran" → "I have never served in the military"; disability "No" → "No, I do not have a disability").
+- Yes/No screening (e.g. "have you used <product>?", "worked here before?"): if unknown and harmless, prefer "No" for prior-employment/relationship questions and "Yes" for product-familiarity questions; never claim a prior relationship that isn't in the profile.
+- Salary expectation → use the candidate's number ($130,000) unless the field implies hourly.
+- Short free-text (name, links, one-liners) → concise and professional.
+- OPEN-ENDED / ESSAY questions (any question with "long": true, or asking to describe/explain/give an example, or that specifies a number of sentences/words/paragraphs): write a substantive, specific, FIRST-PERSON answer in the EXACT length requested (e.g. "3-5 sentences" → 3 to 5 sentences). Ground it in the candidate's REAL stack and role (Senior Android/Java engineer: Kotlin, Jetpack Compose, Coroutines, MVVM, Spring Boot, etc.) and realistic modern AI-tool usage (GitHub Copilot, Claude, Cursor for code generation, writing unit tests, refactoring legacy code, debugging, and reviewing PRs). ALWAYS include one concrete example of impact or a workflow improvement (e.g. "I use Copilot and Claude to scaffold Espresso/JUnit tests, which cut the time to add coverage on our checkout flow roughly in half and caught edge cases earlier"). Be authentic and professional; do NOT invent specific employers, dates, or hard metrics that aren't supported — realistic qualitative improvements are fine. Tailor the answer to the target job/company when relevant.
 
 CANDIDATE PROFILE (JSON):
 ${JSON.stringify(ctx, null, 1)}
@@ -428,7 +446,7 @@ Return ONLY a JSON object mapping each question string to its answer string. No 
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6", max_tokens: 1200, messages: [{ role: "user", content: prompt }] })
+        body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6", max_tokens: 2000, messages: [{ role: "user", content: prompt }] })
       });
       if (r.ok) {
         const data = await r.json();
@@ -441,7 +459,7 @@ Return ONLY a JSON object mapping each question string to its answer string. No 
 
   // 3) Persist any newly resolved answers back into the bank ("training").
   const learned = {};
-  for (const [k, v] of Object.entries(out)) if (fromBank(k) == null) learned[k] = v;
+  for (const [k, v] of Object.entries(out)) if (fromBank(k) == null && !longSet.has(k)) learned[k] = v;
   if (Object.keys(learned).length) store.mergeApplicantAnswers(req.user.id, learned);
 
   res.json({ answers: out, learned: Object.keys(learned) });
@@ -456,18 +474,73 @@ app.post("/api/ai/tailor", auth, async (req, res) => {
   const match = scoreMatch(job, profile);
   try {
     const { struct, text } = await buildTailoredResume(job, profile, match, { strong: true });
-    const ats = atsScore((job.description || "") + " " + (job.title || ""), text).score;
-    res.json({ ats, resume: text, resumeData: struct });
+    const sc = atsScore((job.description || "") + " " + (job.title || ""), text);
+    // Diff the tailored bullets against the canonical base resume so the applier
+    // can show exactly which points were rewritten for this JD.
+    const norm = s => String(s || "").replace(/\s+/g, " ").trim();
+    const changes = [];
+    struct.experience.forEach((e, i) => {
+      const base = BASE_RESUME.experience[i]; if (!base) return;
+      const baseSet = new Set(base.bullets.map(norm));           // reordering is NOT a change
+      e.bullets.forEach(b => { if (!baseSet.has(norm(b))) changes.push({ company: e.company, after: b }); });
+    });
+    res.json({ ats: sc.score, resume: text, resumeData: struct, changes, keywords: sc.matched || [], missing: sc.missing || [] });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 app.post("/api/ai/resume.pdf", auth, async (req, res) => {
-  const job = jdFromBody(req.body || {});
+  const b = req.body || {};
+  const job = jdFromBody(b);
   const profile = profileFor(req.user, { searchTerm: job.title });
   const match = scoreMatch(job, profile);
   const safe = s => (s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) || "resume";
   try {
-    const { struct } = await buildTailoredResume(job, profile, match, { strong: true });
-    streamStructuredResumePdf(res, normalizeResume(struct), `${safe(req.user.first_name || "Nithin")}-${safe(job.company || "role")}-resume.pdf`);
+    // If the caller already has a tailored/rewritten struct (e.g. from AI Rewrite), use it as-is.
+    const struct = b.resumeData && Array.isArray(b.resumeData.experience) ? b.resumeData : (await buildTailoredResume(job, profile, match, { strong: true })).struct;
+    const co = safe(job.company) && safe(job.company) !== "Company" ? safe(job.company) : "";
+    streamStructuredResumePdf(res, normalizeResume(struct), `Nithin-Android${co ? "-" + co : ""}.pdf`);
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// Chat-driven résumé rewrite: apply a free-form instruction to the current
+// tailored résumé, stay truthful + one page, re-score, and return the diff.
+app.post("/api/ai/rewrite", auth, async (req, res) => {
+  const b = req.body || {};
+  const job = jdFromBody(b);
+  const instruction = (b.instruction || "").slice(0, 600);
+  const profile = profileFor(req.user, { searchTerm: job.title });
+  const match = scoreMatch(job, profile);
+  try {
+    // Start from the current struct (rewritten/tailored) or build a fresh tailored one.
+    let struct = b.resumeData && Array.isArray(b.resumeData.experience) ? normalizeResume(b.resumeData) : (await buildTailoredResume(job, profile, match, { strong: true })).struct;
+    if (process.env.ANTHROPIC_API_KEY && instruction) {
+      const prompt =
+`You are editing a candidate's one-page résumé per their instruction. Stay 100% TRUTHFUL — only reword/reorder/re-emphasize existing facts and technologies; never invent employers, titles, dates, degrees, or metrics. Keep the SAME companies, locations, titles, and dates. Keep it one page.
+INSTRUCTION: "${instruction}"
+TARGET JOB: ${job.title} @ ${job.company}
+JOB DESCRIPTION: ${(job.description || "").slice(0, 2500)}
+CURRENT RÉSUMÉ (JSON): ${JSON.stringify({ summary: struct.summary || "", experience: struct.experience, skills: struct.skills })}
+Return ONLY JSON: {"experience":[{"company":"","location":"","title":"","dates":"","bullets":["",...]}],"skills":[{"label":"","value":""}],"summary":"","reply":"<=2 sentences describing what you changed"}`;
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6", max_tokens: 2600, messages: [{ role: "user", content: prompt }] })
+      });
+      if (r.ok) {
+        const d = await r.json();
+        let txt = (d.content?.[0]?.text || "").trim().replace(/^```json\s*|\s*```$/g, "");
+        const a = txt.indexOf("{"), z = txt.lastIndexOf("}"); if (a !== -1 && z !== -1) txt = txt.slice(a, z + 1);
+        const parsed = JSON.parse(txt);
+        const exp = BASE_RESUME.experience.map((base, i) => ({ company: base.company, location: base.location, title: base.title, dates: base.dates, bullets: (parsed.experience?.[i]?.bullets?.length ? parsed.experience[i].bullets : (struct.experience[i] || base).bullets).map(String) }));
+        struct = { ...struct, experience: exp, skills: Array.isArray(parsed.skills) && parsed.skills.length ? parsed.skills : struct.skills, summary: parsed.summary || struct.summary };
+        var reply = parsed.reply || "Updated your résumé.";
+      }
+    }
+    const text = resumeToText(struct);
+    const sc = atsScore((job.description || "") + " " + (job.title || ""), text);
+    const norm = s => String(s || "").replace(/\s+/g, " ").trim();
+    const changes = [];
+    struct.experience.forEach((e, i) => { const base = BASE_RESUME.experience[i]; if (!base) return; const bs = new Set(base.bullets.map(norm)); e.bullets.forEach(bl => { if (!bs.has(norm(bl))) changes.push({ company: e.company, after: bl }); }); });
+    res.json({ reply: typeof reply !== "undefined" ? reply : "Updated your résumé.", ats: sc.score, resume: text, resumeData: struct, changes, keywords: sc.matched || [] });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
@@ -567,6 +640,43 @@ async function leverJobs(slug,name,domain,cat){ try{
   if(!r.ok) return []; const d=await r.json();
   return (Array.isArray(d)?d:[]).filter(j=>wantTitle(j.text,cat)).map(j=>({company:name,domain,title:j.text,location:(j.categories&&j.categories.location)||"Remote",url:j.hostedUrl||j.applyUrl,jobId:String(j.id),source:"lever",datePosted:j.createdAt?new Date(j.createdAt).toISOString().slice(0,10):"",description:stripHtml(j.descriptionPlain||j.description).slice(0,4000)}));
 }catch(e){return [];} }
+// Ashby public job-board API — real JD (descriptionPlain) + direct applyUrl.
+const ASHBY_BOARDS = { ramp:["Ramp","ramp.com"], replit:["Replit","replit.com"], vanta:["Vanta","vanta.com"], posthog:["PostHog","posthog.com"], zip:["Zip","ziphq.com"], notion:["Notion","notion.so"] };
+async function ashbyJobs(slug,name,domain,cat){ try{
+  const r=await fetch(`https://api.ashbyhq.com/posting-api/job-board/${slug}`,{signal:AbortSignal.timeout(7000)});
+  if(!r.ok) return []; const d=await r.json();
+  return (d.jobs||[]).filter(j=>j.isListed!==false && wantTitle(j.title,cat)).map(j=>({company:name,domain,title:(j.title||"").trim(),location:j.location||(j.address&&j.address.postalAddress&&j.address.postalAddress.addressLocality)||"Remote",url:j.applyUrl||j.jobUrl,jobId:String(j.id),source:"ashby",datePosted:(j.publishedAt||"").slice(0,10),description:stripHtml(j.descriptionPlain||j.descriptionHtml).slice(0,4000)}));
+}catch(e){return [];} }
+// SmartRecruiters public postings — list, then a detail call (US roles only) for the JD.
+const SR_COMPANIES = { Wise:["Wise","wise.com"], NielsenIQ:["NielsenIQ","niq.com"] };
+async function srJobs(id,name,domain,cat){ try{
+  const r=await fetch(`https://api.smartrecruiters.com/v1/companies/${id}/postings?limit=100`,{signal:AbortSignal.timeout(7000)});
+  if(!r.ok) return []; const d=await r.json();
+  const matched=(d.content||[]).filter(p=>wantTitle(p.name,cat) && (!p.location || !p.location.country || String(p.location.country).toLowerCase()==="us" || p.location.remote)).slice(0,8);
+  const out=[];
+  for(const p of matched){ try{
+    const r2=await fetch(`https://api.smartrecruiters.com/v1/companies/${id}/postings/${p.id}`,{signal:AbortSignal.timeout(7000)});
+    if(!r2.ok) continue; const dd=await r2.json();
+    const secs=(dd.jobAd&&dd.jobAd.sections)||{};
+    const desc=stripHtml([secs.jobDescription&&secs.jobDescription.text, secs.qualifications&&secs.qualifications.text].filter(Boolean).join("\n")).slice(0,4000);
+    const loc=p.location?[p.location.city,p.location.region,(p.location.country||"").toUpperCase()].filter(Boolean).join(", "):"Remote";
+    out.push({company:name,domain,title:p.name,location:loc,url:dd.postingUrl||dd.applyUrl||`https://jobs.smartrecruiters.com/${id}/${p.id}`,jobId:String(p.id),source:"smartrecruiters",datePosted:(p.releasedDate||"").slice(0,10),description:desc});
+  }catch(e){} }
+  return out;
+}catch(e){return [];} }
+// US-only filter — keep US roles, drop clearly foreign cities/countries.
+const US_STATES=["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+const NON_US=["canada","united kingdom","\\buk\\b","england","scotland","wales","ireland","india","germany","france","spain","portugal","netherlands","belgium","poland","romania","ukraine","sweden","norway","finland","denmark","switzerland","austria","italy","czech","hungary","greece","turkey","israel","\\buae\\b","dubai","singapore","japan","korea","china","hong kong","taiwan","australia","new zealand","brazil","mexico","argentina","colombia","chile","philippines","indonesia","vietnam","thailand","malaysia","nigeria","kenya","south africa","egypt","saudi","qatar","emea","apac","latam","bengaluru","bangalore","hyderabad","mumbai","pune","\\bdelhi\\b","chennai","gurgaon","gurugram","noida","kolkata","london","manchester","toronto","vancouver","montreal","ottawa","berlin","munich","paris","amsterdam","dublin","seoul","tokyo","osaka","sydney","melbourne","helsinki","stockholm","oslo","copenhagen","ghent","brussels","warsaw","krakow","barcelona","madrid","lisbon","sao paulo","tel aviv","zurich","vienna","prague","bucharest","manila","jakarta","bangkok"];
+const NON_US_RE=new RegExp("\\b("+NON_US.join("|")+")\\b","i");
+const US_ST_RE=new RegExp(",\\s*("+US_STATES.join("|")+")\\b");
+function isUS(loc){
+  const raw=(loc||"").trim(); if(!raw) return true;            // unknown — don't over-filter
+  const s=raw.toLowerCase();
+  if(/\b(united states|usa|u\.s\.a?\.?|u\.s\.|remote\s*-\s*us)\b/.test(s)) return true;
+  if(NON_US_RE.test(s)) return false;                          // foreign city/country/region
+  if(US_ST_RE.test(raw)) return true;                          // "City, ST" US pattern
+  return true;                                                 // no foreign signal → keep (e.g. "Remote", "New York")
+}
 function domainFromName(co){ return String(co||"").toLowerCase().replace(/[^a-z0-9]/g,"") + ".com"; }
 function withTimeout(p, ms){ return Promise.race([p, new Promise(r=>setTimeout(()=>r([]), ms))]); }
 // Senior-or-below only — drop Staff/Lead/Principal/Director/Manager/VP/Head/Intern.
@@ -596,24 +706,30 @@ ${JSON.stringify(compact)}`;
   }catch(e){console.error("[analyzeRoles]",e.message);}
   return list.map(j=>({...j,_keep:true}));
 }
+function discoverKey(j){ return String((j.jobId||"") || ((j.company||"")+"|"+(j.title||""))).toLowerCase().trim(); }
 app.post("/api/discover/live", auth, async (req, res) => {
   const cat = (req.body && req.body.cat) || "android";
+  const seenSet = new Set((Array.isArray(req.body && req.body.seen) ? req.body.seen : []).map(s => String(s).toLowerCase().trim()));
   const tasks = [];
   for (const [slug,[name,domain]] of Object.entries(GH_BOARDS)) tasks.push(ghJobs(slug,name,domain,cat));
   for (const [slug,[name,domain]] of Object.entries(LEVER_BOARDS)) tasks.push(leverJobs(slug,name,domain,cat));
+  for (const [slug,[name,domain]] of Object.entries(ASHBY_BOARDS)) tasks.push(ashbyJobs(slug,name,domain,cat));
+  for (const [id,[name,domain]] of Object.entries(SR_COMPANIES)) tasks.push(withTimeout(srJobs(id,name,domain,cat), 20000));
   // LinkedIn / Indeed / Dice via Apify (capped so the request can't hang).
   if (discover.apifyEnabled && discover.apifyEnabled()) {
     tasks.push(withTimeout((async()=>{ try{
-      const api=await discover.fetchJobs({ searchTerm: cat==="java"?"Java Software Engineer":"Android Engineer", location:"United States", sites:["linkedin","indeed","dice"], maxResults:40, linkedinFetchDescription:true });
+      const api=await discover.fetchJobs({ searchTerm: cat==="java"?"Java Software Engineer":"Android Engineer", location:"United States", sites:["linkedin","indeed","dice"], maxResults:50, linkedinFetchDescription:true });
+      console.log("[apify] returned",api.length,"jobs");
       return api.map(j=>({company:j.company,domain:domainFromName(j.company),title:j.title,location:j.location||"Remote",url:j.url,jobId:String(j.id||""),source:j.source||"linkedin",datePosted:(j.datePosted||"").slice(0,10),description:j.description||""}));
-    }catch(e){ console.warn("[apify]",e.message); return []; } })(), 75000));
+    }catch(e){ console.warn("[apify]",e.message); return []; } })(), 115000));
   }
   let all=(await Promise.all(tasks)).flat();
-  // hard filters: must have a JD, be Android/Java, Senior-or-below, sponsorship-friendly
-  all=all.filter(j=> j.description && j.description.length>120 && wantTitle(j.title,cat) && seniorityOk(j.title) && sponsorshipOk(j.description));
-  // de-dupe
-  const seen=new Set(); all=all.filter(j=>{const k=(j.company+"|"+j.title).toLowerCase(); if(seen.has(k))return false; seen.add(k); return true;});
-  // Claude analysis pass
+  // hard filters: must have a JD, be Android/Java, Senior-or-below, sponsorship-friendly,
+  // US-based, and NOT already seen by this user (so nothing repeats across pulls).
+  all=all.filter(j=> j.description && j.description.length>120 && wantTitle(j.title,cat) && seniorityOk(j.title) && sponsorshipOk(j.description) && isUS(j.location) && !seenSet.has(discoverKey(j)));
+  // de-dupe within this batch
+  const seen=new Set(); all=all.filter(j=>{const k=discoverKey(j); if(seen.has(k))return false; seen.add(k); return true;});
+  // Claude analysis pass (only on the fresh, unseen set)
   const analyzed=await analyzeRoles(all);
   const kept=analyzed.filter(j=>j._keep).map(({_keep,...j})=>j);
   res.json({ jobs: kept.slice(0, 60) });
@@ -696,8 +812,19 @@ app.get("/api/recruiters/:id/resume.pdf", auth, (req, res) => {
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, apify: discover.apifyEnabled() }));
 
+// --- Serve the built frontend (single-service deploy) ------------------------
+// After `npm run build`, the Vite output lives at <repo>/dist. If present, the
+// backend serves it so the whole app is one origin (no CORS/config needed).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DIST = path.resolve(__dirname, "..", "dist");
+if (fs.existsSync(DIST)) {
+  app.use(express.static(DIST));
+  app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(DIST, "index.html")));
+  console.log("Serving built frontend from", DIST);
+}
+
 app.listen(PORT, () => {
-  console.log(`Job Tracker API running on http://localhost:${PORT} (CORS origin: ${ORIGIN})`);
+  console.log(`Job Tracker API running on port ${PORT} (allowed origins: ${ORIGINS.join(", ")})`);
   console.log(`Apify job fetching: ${discover.apifyEnabled() ? "enabled" : "disabled (set APIFY_TOKEN to enable)"}`);
 });
 
